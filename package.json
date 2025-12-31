@@ -1,0 +1,16 @@
+{
+    "name": "paye-uber-app",
+    "version": "1.0.0",
+    "private": true,
+    "workspaces": [
+        "web",
+        "mobile"
+    ],
+    "scripts": {
+        "web": "npm run dev --workspace=web",
+        "mobile": "npm run start --workspace=mobile",
+        "dev": "npm run dev --workspace=web",
+        "start": "npm run dev --workspace=web",
+        "install-all": "npm install && npm install --workspace=web && npm install --workspace=mobile"
+    }
+}

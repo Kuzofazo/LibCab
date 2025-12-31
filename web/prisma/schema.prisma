@@ -1,0 +1,113 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Example for SQLite
+// datasource db {
+//   provider = "sqlite"
+//   url      = "file:./dev.db"
+// }
+
+// Example for PostgreSQL
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String?
+  phone     String?
+  role      String   @default("RIDER") // RIDER, DRIVER, ADMIN
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  driverProfile DriverProfile?
+  ridesAsRider  Ride[]         @relation("RiderRides")
+  reviews       Review[]
+  complaints    Complaint[]    @relation("UserComplaints")
+}
+
+model DriverProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id])
+  vehicleType  String?
+  vehicleModel String?
+  vehicleColor String?
+  licensePlate String?
+  rating       Float    @default(5.0)
+  isOnline     Boolean  @default(false)
+  currentLat   Float?
+  currentLng   Float?
+
+  rides Ride[]
+}
+
+model Ride {
+  id            String         @id @default(cuid())
+  riderId       String
+  rider         User           @relation("RiderRides", fields: [riderId], references: [id])
+  driverId      String?
+  driver        DriverProfile? @relation(fields: [driverId], references: [id])
+  status        String         @default("REQUESTED") // REQUESTED, ACCEPTED, IN_PROGRESS, COMPLETED, CANCELLED
+  paymentStatus String         @default("PENDING") // PENDING, PAID
+  originAddress String
+  destAddress   String
+  originLat     Float          @default(0)
+  originLng     Float          @default(0)
+  destLat       Float          @default(0)
+  destLng       Float          @default(0)
+  vehicleType   String?
+  distance      Float?
+  fare          Float?
+  createdAt     DateTime       @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  review        Review?
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  rideId    String   @unique
+  ride      Ride     @relation(fields: [rideId], references: [id])
+  userId    String // Who wrote the review
+  user      User     @relation(fields: [userId], references: [id])
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+}
+
+model Coupon {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  discount  Float // Percentage or fixed amount
+  type      String   @default("PERCENTAGE") // PERCENTAGE, FIXED
+  isActive  Boolean  @default(true)
+  expiry    DateTime
+  createdAt DateTime @default(now())
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  type      String   @default("UPDATE") // PROMO, ALERT, UPDATE
+  target    String   @default("ALL")    // ALL, RIDERS, DRIVERS
+  status    String   @default("SENT")   // SENT, SCHEDULED
+  createdAt DateTime @default(now())
+}
+
+model Complaint {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation("UserComplaints", fields: [userId], references: [id])
+  subject   String
+  message   String
+  status    String   @default("PENDING") // PENDING, RESOLVED, DISMISSED
+  priority  String   @default("MEDIUM") // LOW, MEDIUM, HIGH
+  createdAt DateTime @default(now())
+}
