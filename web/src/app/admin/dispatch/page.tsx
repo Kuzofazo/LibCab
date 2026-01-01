@@ -44,6 +44,14 @@ interface Ride {
     originLng?: number;
 }
 
+interface Driver {
+    id: string;
+    name: string;
+    status: string;
+    vehicle: string;
+    rating: number;
+}
+
 export default function DispatchPage() {
     const [rides, setRides] = useState<Ride[]>([]);
     const [loading, setLoading] = useState(true);
@@ -75,6 +83,56 @@ export default function DispatchPage() {
     const [isLiveMapOpen, setIsLiveMapOpen] = useState(false);
     const [isManualModalOpen, setIsManualModalOpen] = useState(false);
     const [manualRide, setManualRide] = useState({ phone: "", pickup: "", destination: "" });
+
+    // Assignment Logic
+    const [drivers, setDrivers] = useState<Driver[]>([]);
+    const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+    const [selectedRideForAssignment, setSelectedRideForAssignment] = useState<Ride | null>(null);
+
+    const fetchDrivers = async () => {
+        try {
+            const res = await fetch("/api/admin/drivers");
+            if (res.ok) {
+                const data = await res.json();
+                setDrivers(data);
+            }
+        } catch (e) {
+            console.error("Failed to fetch drivers");
+        }
+    };
+
+    const openAssignModal = (ride: Ride) => {
+        setSelectedRideForAssignment(ride);
+        fetchDrivers(); // Refresh drivers when opening
+        setIsAssignModalOpen(true);
+    };
+
+    const handleAssignDriver = async (driverId: string) => {
+        if (!selectedRideForAssignment) return;
+
+        try {
+            const res = await fetch("/api/rides", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    id: selectedRideForAssignment.id,
+                    driverId: driverId,
+                    status: "ACCEPTED" // Or ASSIGNED, keeping consistent with enum usually
+                })
+            });
+
+            if (res.ok) {
+                alert(`Driver assigned successfully!`);
+                setIsAssignModalOpen(false);
+                setSelectedRideForAssignment(null);
+                fetchRides(); // Refresh board
+            } else {
+                alert("Failed to assign driver");
+            }
+        } catch (error) {
+            alert("Error assigning driver");
+        }
+    };
 
     const handleManualBooking = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -219,7 +277,9 @@ export default function DispatchPage() {
 
                                         </div>
                                         <div className="flex gap-2">
-                                            <button className="p-2 py-2 bg-black text-white rounded-xl font-bold flex items-center gap-2 group-hover:scale-105 transition-transform text-xs px-4">
+                                            <button
+                                                onClick={() => openAssignModal(ride)}
+                                                className="p-2 py-2 bg-black text-white rounded-xl font-bold flex items-center gap-2 group-hover:scale-105 transition-transform text-xs px-4">
                                                 Assign
                                                 <ChevronRight size={14} />
                                             </button>
@@ -396,6 +456,51 @@ export default function DispatchPage() {
                                 <button type="submit" className="flex-1 py-3 bg-yellow-400 text-black rounded-xl font-bold">Dispatch Ride</button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Assignment Modal */}
+            {isAssignModalOpen && selectedRideForAssignment && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl animate-in fade-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[80vh]">
+                        <div className="p-6 border-b border-gray-100 bg-gray-50/50">
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="text-xl font-black">Assign Driver</h3>
+                                <button onClick={() => setIsAssignModalOpen(false)} className="w-8 h-8 flex items-center justify-center hover:bg-gray-200 rounded-full font-bold">✕</button>
+                            </div>
+                            <p className="text-sm text-gray-500">Select a driver for ride to <span className="font-bold text-gray-900">{selectedRideForAssignment.destAddress}</span></p>
+                        </div>
+
+                        <div className="p-4 flex-1 overflow-y-auto space-y-3">
+                            {drivers.length === 0 ? (
+                                <div className="text-center py-10 text-gray-400">
+                                    <p>No drivers found.</p>
+                                </div>
+                            ) : (
+                                drivers.map(driver => (
+                                    <div key={driver.id} className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-2xl hover:border-black hover:shadow-md transition-all cursor-pointer group"
+                                        onClick={() => handleAssignDriver(driver.id)}
+                                    >
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-lg font-bold">
+                                                {driver.name.charAt(0)}
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-gray-900">{driver.name}</h4>
+                                                <div className="flex items-center gap-2 text-xs text-gray-500">
+                                                    <span className={`w-2 h-2 rounded-full ${driver.status === 'ONLINE' ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                                                    <span>{driver.status}</span> • <span>{driver.vehicle}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button className="bg-black text-white px-4 py-2 rounded-xl text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                                            Select
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
                 </div>
             )}

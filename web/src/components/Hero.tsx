@@ -1,11 +1,23 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { MapPin, Navigation, Star, TrendingUp } from "lucide-react";
 import { formatDual } from "@/utils/currency";
 
 
 export default function Hero() {
+    const router = useRouter();
+    const [pickup, setPickup] = useState("");
+    const [destination, setDestination] = useState("");
+
+    const handleSeePrices = () => {
+        const params = new URLSearchParams();
+        if (pickup) params.set("pickup", pickup);
+        if (destination) params.set("destination", destination);
+        router.push(`/book/guest?${params.toString()}`);
+    };
+
     return (
         <section className="relative pt-32 pb-20 md:pt-48 md:pb-32 overflow-hidden bg-gradient-to-br from-white via-red-50/30 to-white">
             {/* Animated Background Elements */}
@@ -87,7 +99,8 @@ export default function Hero() {
                                 <input
                                     type="text"
                                     placeholder="Pickup (e.g. Sinkor, Monrovia)"
-
+                                    value={pickup}
+                                    onChange={(e) => setPickup(e.target.value)}
                                     className="w-full bg-gray-50 p-4 pl-12 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:bg-white transition-all"
                                 />
                             </div>
@@ -96,12 +109,15 @@ export default function Hero() {
                                 <input
                                     type="text"
                                     placeholder="Where to? (e.g. Paynesville)"
-
+                                    value={destination}
+                                    onChange={(e) => setDestination(e.target.value)}
                                     className="w-full bg-gray-50 p-4 pl-12 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:bg-white transition-all"
                                 />
                             </div>
                         </div>
-                        <button className="w-full mt-6 bg-gradient-to-r from-red-600 to-red-500 text-white p-4 rounded-xl font-bold hover:from-red-700 hover:to-red-600 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-red-500/30">
+                        <button
+                            onClick={handleSeePrices}
+                            className="w-full mt-6 bg-gradient-to-r from-red-600 to-red-500 text-white p-4 rounded-xl font-bold hover:from-red-700 hover:to-red-600 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-red-500/30">
                             See prices
                         </button>
                     </div>

@@ -13,6 +13,9 @@ export default function AdminDashboard() {
 
     useEffect(() => {
         fetchDashboardData();
+        // Poll every 10 seconds
+        const interval = setInterval(fetchDashboardData, 10000);
+        return () => clearInterval(interval);
     }, []);
 
     const fetchDashboardData = async () => {
@@ -103,15 +106,16 @@ export default function AdminDashboard() {
                         {recentRides.length === 0 ? (
                             <p className="text-sm text-gray-500 text-center py-10">No recent rides found</p>
                         ) : recentRides.map((ride) => (
-                            <div key={ride.id} className="group flex items-center gap-4 p-3 hover:bg-gray-50 rounded-xl transition-all cursor-pointer border border-transparent hover:border-gray-200">
+                            <div key={ride.id} className={`group flex items-center gap-4 p-3 rounded-xl transition-all cursor-pointer border ${ride.status === 'REQUESTED' ? 'bg-orange-50 border-orange-200' : 'hover:bg-gray-50 border-transparent hover:border-gray-200'}`}>
                                 <div className="w-10 h-10 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center text-xs font-bold text-gray-700 group-hover:scale-110 transition-transform">
                                     {ride.rider?.name?.[0] || "R"}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-bold text-gray-900 truncate">{ride.rider?.name || "Unknown"}</p>
+                                    <p className="text-xs text-gray-600 truncate"><span className="font-semibold">From:</span> {ride.originAddress}</p>
                                     <p className="text-xs text-gray-500 truncate">To: {ride.destAddress}</p>
                                 </div>
-                                <span className={`text-[10px] font-bold px-2 py-1 rounded-full bg-gray-100 text-gray-600 uppercase`}>
+                                <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase ${ride.status === 'REQUESTED' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
                                     {ride.status}
                                 </span>
                             </div>

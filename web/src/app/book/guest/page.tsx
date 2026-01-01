@@ -1,7 +1,8 @@
 "use strict";
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
     Phone,
     MapPin,
@@ -12,15 +13,16 @@ import {
     CheckCircle2
 } from "lucide-react";
 
-export default function GuestBookingPage() {
-    const [step, setStep] = useState(1); // 1: Phone, 2: OTP, 3: Details, 4: Finding Driver
+function GuestBookingContent() {
+    const searchParams = useSearchParams();
+    const [step, setStep] = useState(searchParams.get("pickup") || searchParams.get("destination") ? 3 : 1); // 1: Phone, 2: OTP, 3: Details, 4: Finding Driver
     const [loading, setLoading] = useState(false);
     const [phone, setPhone] = useState("");
     const [otp, setOtp] = useState("");
     const [session, setSession] = useState(null);
     const [trip, setTrip] = useState({
-        pickup: "",
-        destination: "",
+        pickup: searchParams.get("pickup") || "",
+        destination: searchParams.get("destination") || "",
         payment: "CASH"
     });
 
@@ -70,6 +72,13 @@ export default function GuestBookingPage() {
 
     const handleRequestRide = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!session) {
+            alert("Please verify your phone number to complete the request.");
+            setStep(1);
+            return;
+        }
+
         setLoading(true);
         try {
             const res = await fetch("/api/rides/guest", {
@@ -176,9 +185,9 @@ export default function GuestBookingPage() {
 
                     {/* Step 3: Trip Details */}
                     {step === 3 && (
-                        <form onSubmit={handleRequestRide} className="p-8 flex-1 flex flex-col animate-in slide-in-from-right duration-300">
+                        <form onSubmit={handleRequestRide} className="p-8 flex-1 flex flex-col animate-in slide-in-from-right duration-300 overflow-y-auto">
                             <div className="mb-6">
-                                <h2 className="text-2xl font-bold mb-1">Where to?</h2>
+                                <h2 className="text-2xl font-bold mb-1 text-gray-900">Where to?</h2>
                             </div>
 
                             <div className="space-y-4 flex-1">
@@ -187,7 +196,7 @@ export default function GuestBookingPage() {
                                     <input
                                         type="text"
                                         placeholder="Pickup Location"
-                                        className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-medium focus:bg-white focus:border-black outline-none transition-all"
+                                        className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-medium text-gray-900 placeholder:text-gray-400 focus:bg-white focus:border-black outline-none transition-all"
                                         value={trip.pickup}
                                         onChange={e => setTrip({ ...trip, pickup: e.target.value })}
                                         required
@@ -198,30 +207,44 @@ export default function GuestBookingPage() {
                                     <input
                                         type="text"
                                         placeholder="Destination"
-                                        className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-medium focus:bg-white focus:border-black outline-none transition-all"
+                                        className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-medium text-gray-900 placeholder:text-gray-400 focus:bg-white focus:border-black outline-none transition-all"
                                         value={trip.destination}
                                         onChange={e => setTrip({ ...trip, destination: e.target.value })}
                                         required
                                     />
                                 </div>
 
-                                <div className="pt-4">
+                                {/* Estimated Price Display */}
+                                <div className="bg-gradient-to-r from-gray-50 to-white p-4 rounded-xl border border-gray-100 flex items-center justify-between">
+                                    <div>
+                                        <p className="text-xs font-bold text-gray-500 uppercase">Estimated Fare</p>
+                                        <div className="flex items-baseline gap-1">
+                                            <span className="text-2xl font-black text-gray-900">$3.50</span>
+                                            <span className="text-sm font-medium text-gray-500">/ L$ 650</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg">Standard</div>
+                                    </div>
+                                </div>
+
+                                <div className="pt-2">
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Payment Method</label>
                                     <div className="flex flex-col gap-3">
                                         <div className="flex gap-2">
                                             <button
                                                 type="button"
                                                 onClick={() => setTrip({ ...trip, payment: "CASH" })}
-                                                className={`flex-1 py-3 px-4 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all ${trip.payment === "CASH" ? "border-black bg-black text-white" : "border-gray-100 text-gray-400 hover:bg-gray-50"}`}
+                                                className={`flex-1 py-3 px-4 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all ${trip.payment === "CASH" ? "border-black bg-black text-white" : "border-gray-100 text-gray-400 hover:bg-gray-50 bg-white"}`}
                                             >
-                                                💵 Cash
+                                                <span>💵</span> Cash
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={() => setTrip({ ...trip, payment: "MOBILE_MONEY" })}
-                                                className={`flex-1 py-3 px-4 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all ${trip.payment !== "CASH" ? "border-green-600 bg-green-50 text-green-700" : "border-gray-100 text-gray-400 hover:bg-gray-50"}`}
+                                                className={`flex-1 py-3 px-4 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all ${trip.payment !== "CASH" ? "border-green-600 bg-green-50 text-green-700" : "border-gray-100 text-gray-400 hover:bg-gray-50 bg-white"}`}
                                             >
-                                                📶 Mobile Money
+                                                <span>📶</span> Mobile Money
                                             </button>
                                         </div>
 
@@ -230,16 +253,20 @@ export default function GuestBookingPage() {
                                                 <button
                                                     type="button"
                                                     onClick={() => setTrip({ ...trip, payment: "MTN" })}
-                                                    className={`py-2 px-3 rounded-lg border-2 font-bold text-sm transition-all ${trip.payment === "MTN" ? "border-yellow-400 bg-yellow-50" : "border-gray-100 grayscale opacity-50 hover:grayscale-0 hover:opacity-100"}`}
+                                                    className={`py-2 px-3 rounded-lg border-2 font-bold text-sm transition-all ${trip.payment === "MTN" ? "border-yellow-400 bg-yellow-50 text-black" : "border-gray-100 grayscale opacity-50 hover:grayscale-0 hover:opacity-100 bg-white text-gray-500"}`}
                                                 >
-                                                    <div className="w-full h-8 bg-yellow-400 rounded flex items-center justify-center text-xs">MTN</div>
+                                                    <div className="w-full flex items-center justify-center gap-2">
+                                                        <div className="w-4 h-4 rounded-full bg-yellow-400" /> MTN
+                                                    </div>
                                                 </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => setTrip({ ...trip, payment: "ORANGE" })}
-                                                    className={`py-2 px-3 rounded-lg border-2 font-bold text-sm transition-all ${trip.payment === "ORANGE" ? "border-orange-500 bg-orange-50" : "border-gray-100 grayscale opacity-50 hover:grayscale-0 hover:opacity-100"}`}
+                                                    className={`py-2 px-3 rounded-lg border-2 font-bold text-sm transition-all ${trip.payment === "ORANGE" ? "border-orange-500 bg-orange-50 text-black" : "border-gray-100 grayscale opacity-50 hover:grayscale-0 hover:opacity-100 bg-white text-gray-500"}`}
                                                 >
-                                                    <div className="w-full h-8 bg-orange-500 rounded flex items-center justify-center text-xs text-white">Orange</div>
+                                                    <div className="w-full flex items-center justify-center gap-2">
+                                                        <div className="w-4 h-4 rounded-full bg-orange-500" /> Orange
+                                                    </div>
                                                 </button>
                                             </div>
                                         )}
@@ -280,6 +307,14 @@ export default function GuestBookingPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function GuestBookingPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>}>
+            <GuestBookingContent />
+        </Suspense>
     );
 }
 
