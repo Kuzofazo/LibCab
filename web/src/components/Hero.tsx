@@ -53,7 +53,7 @@ export default function Hero() {
                     <h1 className="text-5xl md:text-7xl font-bold tracking-tighter text-gray-900 leading-[1.1]">
                         Go anywhere, <br />
                         <span className="bg-gradient-to-r from-red-600 to-red-500 bg-clip-text text-transparent">
-                            anytime.
+                            anytime with LibCab.
                         </span>
                     </h1>
 
