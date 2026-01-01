@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { Plus, Trash2, Edit3, Search, Tag, Calendar, CheckCircle, XCircle } from "lucide-react";
+import { formatDual } from "@/utils/currency";
+
 
 export default function CouponsPage() {
     const [coupons, setCoupons] = useState<any[]>([]);
@@ -115,7 +117,8 @@ export default function CouponsPage() {
                             <div className="mb-4">
                                 <h3 className="text-xl font-black text-gray-900 tracking-tight">{coupon.code}</h3>
                                 <p className="text-sm text-gray-500">
-                                    {coupon.type === "PERCENTAGE" ? `${coupon.discount}% OFF` : `$${coupon.discount} OFF`}
+                                    {coupon.type === "PERCENTAGE" ? `${coupon.discount}% OFF` : `${formatDual(coupon.discount)} OFF`}
+
                                 </p>
                             </div>
 
@@ -158,6 +161,80 @@ export default function CouponsPage() {
                     <p className="text-gray-500 max-w-sm">Start creating coupons to boost your platform growth and user engagement.</p>
                 </div>
             )}
-        </div>
+
+            {/* Create Coupon Modal */}
+            {
+                isModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                        <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                                <h3 className="text-xl font-bold">Create New Coupon</h3>
+                                <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                                    <XCircle size={24} />
+                                </button>
+                            </div>
+                            <form onSubmit={async (e) => {
+                                e.preventDefault();
+                                try {
+                                    const formData = new FormData(e.currentTarget);
+                                    const rawExpiry = formData.get('expiry') as string;
+
+                                    const res = await fetch("/api/admin/coupons", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                            code: formData.get('code'),
+                                            discount: Number(formData.get('discount')),
+                                            type: formData.get('type'),
+                                            expiry: new Date(rawExpiry).toISOString()
+                                        })
+                                    });
+
+                                    if (!res.ok) {
+                                        const err = await res.json();
+                                        alert(err.error || "Failed");
+                                        return;
+                                    }
+
+                                    // Refresh list
+                                    const newCoupon = await res.json();
+                                    setCoupons([newCoupon, ...coupons]);
+                                    setIsModalOpen(false);
+                                    alert("Coupon created successfully!");
+                                } catch (error) {
+                                    alert("Failed to create coupon");
+                                }
+                            }} className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Coupon Code</label>
+                                    <input name="code" type="text" required placeholder="e.g. SUMMER2026" className="w-full px-4 py-2 border rounded-xl font-mono uppercase" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Discount Amount</label>
+                                        <input name="discount" type="number" required placeholder="10" className="w-full px-4 py-2 border rounded-xl" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Type</label>
+                                        <select name="type" className="w-full px-4 py-2 border rounded-xl bg-white">
+                                            <option value="PERCENTAGE">Percentage (%)</option>
+                                            <option value="FIXED">Fixed Amount ($)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Expiry Date</label>
+                                    <input name="expiry" type="date" required className="w-full px-4 py-2 border rounded-xl" />
+                                </div>
+                                <div className="pt-4 flex gap-3">
+                                    <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                                    <button type="submit" className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">Create Coupon</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                )
+            }
+        </div >
     );
 }

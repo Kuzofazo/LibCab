@@ -2,6 +2,8 @@
 
 import React from "react";
 import { MapPin, Navigation, Star, TrendingUp } from "lucide-react";
+import { formatDual } from "@/utils/currency";
+
 
 export default function Hero() {
     return (
@@ -84,7 +86,8 @@ export default function Hero() {
                                 <div className="absolute left-[21px] top-8 h-8 w-[2px] bg-gray-200"></div>
                                 <input
                                     type="text"
-                                    placeholder="Current Location"
+                                    placeholder="Pickup (e.g. Sinkor, Monrovia)"
+
                                     className="w-full bg-gray-50 p-4 pl-12 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:bg-white transition-all"
                                 />
                             </div>
@@ -92,7 +95,8 @@ export default function Hero() {
                                 <div className="absolute left-4 top-1/2 -translate-y-1/2 w-3 h-3 rounded-sm bg-red-600"></div>
                                 <input
                                     type="text"
-                                    placeholder="Where to?"
+                                    placeholder="Where to? (e.g. Paynesville)"
+
                                     className="w-full bg-gray-50 p-4 pl-12 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:bg-white transition-all"
                                 />
                             </div>
@@ -132,7 +136,8 @@ export default function Hero() {
                         {/* Price Tag */}
                         <div className="absolute bottom-10 left-10 p-4 bg-white rounded-2xl shadow-2xl">
                             <p className="text-xs text-gray-500 font-medium mb-1">Estimated fare</p>
-                            <p className="font-bold text-2xl text-gray-900">$12.50</p>
+                            <p className="font-bold text-lg text-gray-900">{formatDual(12.50)}</p>
+
                         </div>
                     </div>
                 </div>

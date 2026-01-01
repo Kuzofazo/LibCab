@@ -23,8 +23,19 @@ export default function Home() {
               Ready to <span className="bg-gradient-to-r from-red-500 to-pink-500 bg-clip-text text-transparent">ride?</span>
             </h2>
             <p className="text-xl text-gray-300 mb-12 max-w-2xl mx-auto">
-              Download the LibCab app today and experience the future of transportation in Liberia. Your next ride is just a tap away.
+              Download the LibCab app today or book instantly without an account. Your next ride is just a tap away.
             </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
+              <a href="/book/guest" className="group relative bg-yellow-400 text-black px-10 py-5 rounded-2xl font-black text-xl hover:bg-yellow-300 transition-all hover:scale-105 active:scale-95 shadow-[0_0_40px_-10px_rgba(250,204,21,0.5)] flex items-center justify-center gap-3 w-full sm:w-auto">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-black opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-black"></span>
+                </span>
+                BOOK INSTANT RIDE
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 7l5 5m0 0l-5 5m5-5H6"></path></svg>
+              </a>
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <button className="group bg-white text-black px-8 py-4 rounded-xl font-bold hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-2xl flex items-center justify-center gap-2">
                 <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">

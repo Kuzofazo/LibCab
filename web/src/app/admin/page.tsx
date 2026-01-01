@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { Users, Car, DollarSign, Activity, TrendingUp, ArrowUpRight, ArrowDownRight, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { formatDual } from "@/utils/currency";
+
 
 export default function AdminDashboard() {
     const [statsData, setStatsData] = useState<any>(null);
@@ -42,7 +44,8 @@ export default function AdminDashboard() {
     const statsConfig = [
         { label: "Total Users", value: statsData?.totalUsers?.toLocaleString() || "0", icon: Users, color: "from-blue-500 to-blue-600" },
         { label: "Active Drivers", value: statsData?.activeDrivers?.toString() || "0", icon: Car, color: "from-green-500 to-green-600" },
-        { label: "Total Revenue", value: `$${statsData?.totalRevenue?.toLocaleString() || "0"}`, icon: DollarSign, color: "from-purple-500 to-purple-600" },
+        { label: "Total Revenue", value: statsData?.totalRevenue ? formatDual(statsData.totalRevenue) : "$0.00", icon: DollarSign, color: "from-purple-500 to-purple-600" },
+
         { label: "Pending Requests", value: statsData?.pendingRides?.toString() || "0", icon: Activity, color: "from-orange-500 to-orange-600" },
     ];
 

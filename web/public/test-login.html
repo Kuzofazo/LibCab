@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login Test</title>
+</head>
+<body>
+    <h1>Direct Login API Test</h1>
+    <form id="loginForm">
+        <input type="email" id="email" value="admin@paye.com" placeholder="Email"><br><br>
+        <input type="password" id="password" value="admin" placeholder="Password"><br><br>
+        <button type="submit">Test Login</button>
+    </form>
+    <pre id="result"></pre>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const resultEl = document.getElementById('result');
+            
+            resultEl.textContent = 'Testing...';
+            
+            try {
+                const response = await fetch('http://localhost:3000/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                resultEl.textContent = `Status: ${response.status}\n\n` + 
+                    JSON.stringify(data, null, 2);
+                
+                if (response.ok) {
+                    resultEl.textContent += '\n\n✅ LOGIN SUCCESSFUL!\nToken: ' + data.token.substring(0, 20) + '...';
+                }
+            } catch (error) {
+                resultEl.textContent = 'Error: ' + error.message;
+            }
+        });
+    </script>
+</body>
+</html>

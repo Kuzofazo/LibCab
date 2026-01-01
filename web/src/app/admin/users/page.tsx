@@ -33,6 +33,44 @@ export default function UsersPage() {
         fetchUsers();
     }, []);
 
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [newUser, setNewUser] = useState({ name: "", email: "", role: "RIDER" });
+
+    const handleAddUser = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            const res = await fetch("/api/users", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    ...newUser,
+                    password: "User123!" // Default password for admin-created users
+                })
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                alert(err.error || "Failed");
+                return;
+            }
+
+            // Refresh list (re-fetch)
+            const created = await res.json();
+            // Optimistic update or refetch. Let's trigger a refetch or simple state add.
+            // Since we need the ID and full object, using the 'created' one is good.
+            // But to get the proper "status" field which is mocked in fetch, let's just refetch.
+            // For now, let's manually add to state to save a network call, assuming 'Active' status.
+
+            setUsers([{ ...created, status: "Active" }, ...users]);
+            setIsAddModalOpen(false);
+            setNewUser({ name: "", email: "", role: "RIDER" });
+            alert("User added successfully!");
+        } catch (error) {
+            console.error(error);
+            alert("Failed to add user");
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -49,7 +87,10 @@ export default function UsersPage() {
                     <h2 className="text-3xl font-bold text-gray-900">User Management</h2>
                     <p className="text-gray-600 mt-1">Manage riders and drivers across the platform</p>
                 </div>
-                <button className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-red-600 to-red-500 text-white rounded-xl font-bold hover:from-red-700 hover:to-red-600 transition-all hover:scale-105 active:scale-95 shadow-lg shadow-red-500/30">
+                <button
+                    onClick={() => setIsAddModalOpen(true)}
+                    className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-red-600 to-red-500 text-white rounded-xl font-bold hover:from-red-700 hover:to-red-600 transition-all hover:scale-105 active:scale-95 shadow-lg shadow-red-500/30"
+                >
                     <UserPlus size={20} />
                     Add User
                 </button>
@@ -135,10 +176,10 @@ export default function UsersPage() {
                                     </td>
                                     <td className="py-4 px-6">
                                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold ${user.role === "DRIVER"
-                                                ? "bg-gradient-to-r from-blue-500 to-blue-600 text-white"
-                                                : user.role === "ADMIN"
-                                                    ? "bg-gradient-to-r from-purple-500 to-purple-600 text-white"
-                                                    : "bg-gray-100 text-gray-700"
+                                            ? "bg-gradient-to-r from-blue-500 to-blue-600 text-white"
+                                            : user.role === "ADMIN"
+                                                ? "bg-gradient-to-r from-purple-500 to-purple-600 text-white"
+                                                : "bg-gray-100 text-gray-700"
                                             }`}>
                                             {user.role}
                                         </span>
@@ -185,6 +226,56 @@ export default function UsersPage() {
                     </div>
                 )}
             </div>
+
+            {/* Add User Modal */}
+            {isAddModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-xl font-bold">Add New User</h3>
+                            <button onClick={() => setIsAddModalOpen(false)} className="px-3 py-1 hover:bg-gray-100 rounded-full font-bold">✕</button>
+                        </div>
+                        <form onSubmit={handleAddUser} className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Full Name</label>
+                                <input
+                                    type="text"
+                                    required
+                                    className="w-full px-4 py-2 border rounded-xl"
+                                    value={newUser.name}
+                                    onChange={e => setNewUser({ ...newUser, name: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
+                                <input
+                                    type="email"
+                                    required
+                                    className="w-full px-4 py-2 border rounded-xl"
+                                    value={newUser.email}
+                                    onChange={e => setNewUser({ ...newUser, email: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Role</label>
+                                <select
+                                    className="w-full px-4 py-2 border rounded-xl bg-white"
+                                    value={newUser.role}
+                                    onChange={e => setNewUser({ ...newUser, role: e.target.value })}
+                                >
+                                    <option value="RIDER">Rider</option>
+                                    <option value="DRIVER">Driver</option>
+                                    <option value="ADMIN">Admin</option>
+                                </select>
+                            </div>
+                            <div className="pt-4 flex gap-3">
+                                <button type="button" onClick={() => setIsAddModalOpen(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                                <button type="submit" className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">Create User</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

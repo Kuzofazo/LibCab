@@ -1,13 +1,17 @@
 const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
+    const hashedPassword = await bcrypt.hash('password123', 10);
+    const adminPassword = await bcrypt.hash('admin', 10);
+
     const admin = await prisma.user.upsert({
         where: { email: 'admin@paye.com' },
-        update: {},
+        update: { password: adminPassword },
         create: {
             email: 'admin@paye.com',
-            password: 'admin',
+            password: adminPassword,
             name: 'Super Admin',
             role: 'ADMIN',
         },
@@ -15,10 +19,10 @@ async function main() {
 
     const rider = await prisma.user.upsert({
         where: { email: 'rider@example.com' },
-        update: {},
+        update: { password: hashedPassword },
         create: {
             email: 'rider@example.com',
-            password: 'password123',
+            password: hashedPassword,
             name: 'Rider One',
             role: 'RIDER',
         },
@@ -26,10 +30,10 @@ async function main() {
 
     const driver = await prisma.user.upsert({
         where: { email: 'driver@example.com' },
-        update: {},
+        update: { password: hashedPassword },
         create: {
             email: 'driver@example.com',
-            password: 'password123',
+            password: hashedPassword,
             name: 'Driver One',
             role: 'DRIVER',
             driverProfile: {

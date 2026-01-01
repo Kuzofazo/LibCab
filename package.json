@@ -1,17 +1,10 @@
 {
-    "name": "paye-uber-app",
-    "version": "1.0.0",
-    "private": true,
-    "workspaces": [
-        "web",
-        "mobile"
-    ],
-    "scripts": {
-        "web": "npm run dev --workspace=web",
-        "mobile": "npm run start --workspace=mobile",
-        "dev": "npm run dev --workspace=web",
-        "start": "npm run dev --workspace=web",
-        "test": "npm run test --workspace=web",
-        "install-all": "npm install && npm install --workspace=web && npm install --workspace=mobile"
-    }
+  "name": "libcab",
+  "private": true,
+  "packageManager": "pnpm@9",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "start": "pnpm --filter web start",
+    "install-all": "pnpm install"
+  }
 }

@@ -9,7 +9,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const user = localStorage.getItem("paye_admin_user");
+        const user = localStorage.getItem("user");
         if (!user) {
             router.push("/login");
         } else {

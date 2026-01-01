@@ -39,6 +39,12 @@ model DriverProfile {
   vehicleModel String?
   vehicleColor String?
   licensePlate String?
+  driverLicense String?
+  licenseIssued DateTime?
+  licenseExpiry DateTime?
+  dob           DateTime?
+  pob           String?
+  country       String?  @default("Liberia")
   rating       Float    @default(5.0)
   isOnline     Boolean  @default(false)
   currentLat   Float?
@@ -47,10 +53,23 @@ model DriverProfile {
   rides Ride[]
 }
 
+
+model GuestSession {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  otpCode   String?
+  otpExpires DateTime?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Ride {
   id            String         @id @default(cuid())
-  riderId       String
-  rider         User           @relation("RiderRides", fields: [riderId], references: [id])
+  riderId       String?
+  rider         User?          @relation("RiderRides", fields: [riderId], references: [id])
+  guestPhone    String?
+  guestName     String?
   driverId      String?
   driver        DriverProfile? @relation(fields: [driverId], references: [id])
   status        String         @default("REQUESTED") // REQUESTED, ACCEPTED, IN_PROGRESS, COMPLETED, CANCELLED
@@ -64,10 +83,35 @@ model Ride {
   vehicleType   String?
   distance      Float?
   fare          Float?
+  paymentMethod String         @default("CASH") // CASH, MOBILE_MONEY
   createdAt     DateTime       @default(now())
   startedAt     DateTime?
   completedAt   DateTime?
   review        Review?
+  payments      PaymentTransaction[]
+  sosAlert      Boolean        @default(false)
+  shareToken    String?
+}
+
+model PaymentTransaction {
+  id          String   @id @default(cuid())
+  rideId      String
+  ride        Ride     @relation(fields: [rideId], references: [id])
+  amount      Float
+  currency    String   @default("LRD") // LRD or USD
+  provider    String   // "MTN", "ORANGE", "CASH"
+  status      String   // "PENDING", "SUCCESS", "FAILED"
+  externalId  String?  // Reference from Mobile Money provider
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model DispatcherLog {
+  id          String   @id @default(cuid())
+  dispatcherId String?
+  action      String   // "MANUAL_BOOKING", "EDIT_RIDE", "ASSIGN_DRIVER"
+  details     String?  // JSON or text details
+  createdAt   DateTime @default(now())
 }
 
 model Review {
@@ -110,4 +154,15 @@ model Complaint {
   status    String   @default("PENDING") // PENDING, RESOLVED, DISMISSED
   priority  String   @default("MEDIUM") // LOW, MEDIUM, HIGH
   createdAt DateTime @default(now())
+}
+
+model Zone {
+  id         String   @id @default(cuid())
+  name       String
+  city       String
+  baseFare   Float
+  multiplier Float    @default(1.0)
+  status     String   @default("ACTIVE") // ACTIVE, INACTIVE
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }

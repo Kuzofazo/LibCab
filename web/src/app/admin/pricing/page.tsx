@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
     DollarSign,
     MapPin,
@@ -14,6 +14,8 @@ import {
     Globe,
     RefreshCcw
 } from "lucide-react";
+import { EXCHANGE_RATE } from "@/utils/currency";
+
 
 interface Zone {
     id: string;
@@ -24,16 +26,69 @@ interface Zone {
     multiplier: number;
 }
 
-const initialZones: Zone[] = [
-    { id: "Z-001", name: "Sinkor", city: "Monrovia", status: "ACTIVE", baseFare: 5, multiplier: 1.2 },
-    { id: "Z-002", name: "Bushrod Island", city: "Monrovia", status: "ACTIVE", baseFare: 7, multiplier: 1.5 },
-    { id: "Z-003", name: "Paynesville", city: "Monrovia", status: "ACTIVE", baseFare: 4, multiplier: 1.0 },
-    { id: "Z-004", name: "Roberts Intl Airport", city: "Monrovia", status: "INACTIVE", baseFare: 45, multiplier: 1.8 },
-];
 
 export default function PricingPage() {
-    const [zones, setZones] = useState<Zone[]>(initialZones);
-    const [exchangeRate, setExchangeRate] = useState(185);
+    const [zones, setZones] = useState<Zone[]>([]);
+
+    useEffect(() => {
+        fetchZones();
+        fetchPricing();
+    }, []);
+
+    const fetchPricing = async () => {
+        try {
+            const res = await fetch("/api/admin/pricing");
+            if (res.ok) {
+                const data = await res.json();
+                setExchangeRate(data.exchangeRate);
+                setBaseRate(data.baseFare);
+                setPerMile(data.perMile);
+                setPerMinute(data.perMinute);
+            }
+        } catch (error) {
+            console.error("Failed to fetch pricing config", error);
+        }
+    };
+
+    const savePricing = async () => {
+        try {
+            const res = await fetch("/api/admin/pricing", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    exchangeRate,
+                    baseFare: baseRate,
+                    perMile,
+                    perMinute
+                })
+            });
+
+            if (res.ok) {
+                alert("Pricing configuration saved successfully!");
+            } else {
+                alert("Failed to save pricing configuration.");
+            }
+        } catch (error) {
+            console.error("Failed to save pricing", error);
+            alert("Error saving pricing configuration.");
+        }
+    };
+
+    const fetchZones = async () => {
+        try {
+            const res = await fetch("/api/admin/zones");
+            const data = await res.json();
+            setZones(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error("Fetch failed", error);
+        }
+    };
+
+    const [isAddZoneModalOpen, setIsAddZoneModalOpen] = useState(false);
+    const [newZone, setNewZone] = useState({ name: "", city: "Monrovia", baseFare: 5, multiplier: 1.0 });
+
+    const [exchangeRate, setExchangeRate] = useState(EXCHANGE_RATE);
+
     const [baseRate, setBaseRate] = useState(5.00);
     const [perMile, setPerMile] = useState(1.50);
     const [perMinute, setPerMinute] = useState(0.20);
@@ -49,7 +104,9 @@ export default function PricingPage() {
                     <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Pricing & Operational Areas</h1>
                     <p className="text-gray-500">Configure global fare parameters and manage geographic service zones for Liberia.</p>
                 </div>
-                <button className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95 flex items-center gap-2">
+                <button
+                    onClick={savePricing}
+                    className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95 flex items-center gap-2">
                     <Save size={20} />
                     Save All Changes
                 </button>
@@ -168,7 +225,9 @@ export default function PricingPage() {
                                     <p className="text-sm text-gray-500 font-medium">Regional price overrides for Monrovia districts.</p>
                                 </div>
                             </div>
-                            <button className="p-3 bg-gray-50 text-gray-600 rounded-2xl hover:bg-gray-100 transition-colors">
+                            <button
+                                onClick={() => setIsAddZoneModalOpen(true)}
+                                className="p-3 bg-gray-50 text-gray-600 rounded-2xl hover:bg-gray-100 transition-colors">
                                 <Plus size={24} />
                             </button>
                         </div>
@@ -250,6 +309,76 @@ export default function PricingPage() {
                     </div>
                 </div>
             </div>
+            {/* Add Zone Modal */}
+            {isAddZoneModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-xl font-bold">Add New Zone</h3>
+                            <button onClick={() => setIsAddZoneModalOpen(false)} className="px-3 py-1 hover:bg-gray-100 rounded-full font-bold">✕</button>
+                        </div>
+                        <form onSubmit={async (e) => {
+                            e.preventDefault();
+                            try {
+                                const res = await fetch("/api/admin/zones", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify(newZone)
+                                });
+
+                                if (!res.ok) {
+                                    alert("Failed to create zone");
+                                    return;
+                                }
+
+                                const created = await res.json();
+                                setZones([created, ...zones]);
+                                setIsAddZoneModalOpen(false);
+                                setNewZone({ name: "", city: "Monrovia", baseFare: 5, multiplier: 1.0 });
+                                alert("Zone added successfully!");
+                            } catch (error) {
+                                alert("Error adding zone");
+                            }
+                        }} className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Zone Name</label>
+                                <input
+                                    type="text"
+                                    required
+                                    className="w-full px-4 py-2 border rounded-xl"
+                                    value={newZone.name}
+                                    onChange={e => setNewZone({ ...newZone, name: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Base Fare ($)</label>
+                                <input
+                                    type="number"
+                                    required
+                                    className="w-full px-4 py-2 border rounded-xl"
+                                    value={newZone.baseFare}
+                                    onChange={e => setNewZone({ ...newZone, baseFare: Number(e.target.value) })}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Multiplier</label>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    required
+                                    className="w-full px-4 py-2 border rounded-xl"
+                                    value={newZone.multiplier}
+                                    onChange={e => setNewZone({ ...newZone, multiplier: Number(e.target.value) })}
+                                />
+                            </div>
+                            <div className="pt-4 flex gap-3">
+                                <button type="button" onClick={() => setIsAddZoneModalOpen(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                                <button type="submit" className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">Add Zone</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

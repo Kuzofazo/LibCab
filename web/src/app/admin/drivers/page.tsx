@@ -17,6 +17,20 @@ import {
 
 export default function DriversPage() {
     const [drivers, setDrivers] = useState<any[]>([]);
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [newDriver, setNewDriver] = useState({
+        name: "",
+        email: "",
+        phone: "",
+        vehicle: "",
+        licensePlate: "",
+        driverLicense: "",
+        issuedDate: "",
+        expiryDate: "",
+        dob: "",
+        pob: "",
+        country: "Liberia"
+    });
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -48,6 +62,48 @@ export default function DriversPage() {
         }
     };
 
+    const handleAddDriver = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+
+        try {
+            const res = await fetch("/api/admin/drivers", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(newDriver)
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                alert(err.error || "Failed to add driver");
+                setLoading(false);
+                return;
+            }
+
+            await fetchDrivers(); // Refresh list from backend
+            setIsAddModalOpen(false);
+            setNewDriver({
+                name: "",
+                email: "",
+                phone: "",
+                vehicle: "",
+                licensePlate: "",
+                driverLicense: "",
+                issuedDate: "",
+                expiryDate: "",
+                dob: "",
+                pob: "",
+                country: "Liberia"
+            });
+            alert("Driver added successfully!");
+        } catch (error) {
+            console.error(error);
+            alert("An error occurred");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
@@ -63,7 +119,10 @@ export default function DriversPage() {
                     <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Fleet & Driver Management</h1>
                     <p className="text-gray-500">Monitor and manage your vehicle fleet and driver performance.</p>
                 </div>
-                <button className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95 flex items-center gap-2">
+                <button
+                    onClick={() => setIsAddModalOpen(true)}
+                    className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95 flex items-center gap-2"
+                >
                     <UserCheck size={20} />
                     Add New Driver
                 </button>
@@ -164,6 +223,81 @@ export default function DriversPage() {
                     <p className="text-xs font-bold text-gray-400">Total: {drivers.length} drivers</p>
                 </div>
             </div>
+
+            {/* Add Driver Modal */}
+            {isAddModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-xl font-bold">Add New Driver</h3>
+                            <button onClick={() => setIsAddModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                                <XCircle size={24} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleAddDriver} className="p-6 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Full Name</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        className="w-full px-4 py-2 border rounded-xl"
+                                        value={newDriver.name}
+                                        onChange={e => setNewDriver({ ...newDriver, name: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
+                                    <input
+                                        type="email"
+                                        required
+                                        className="w-full px-4 py-2 border rounded-xl"
+                                        value={newDriver.email}
+                                        onChange={e => setNewDriver({ ...newDriver, email: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Phone</label>
+                                <input
+                                    type="tel"
+                                    required
+                                    className="w-full px-4 py-2 border rounded-xl"
+                                    value={newDriver.phone}
+                                    onChange={e => setNewDriver({ ...newDriver, phone: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Vehicle Model</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="e.g. Toyota Corolla"
+                                        className="w-full px-4 py-2 border rounded-xl"
+                                        value={newDriver.vehicle}
+                                        onChange={e => setNewDriver({ ...newDriver, vehicle: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">License Plate</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        className="w-full px-4 py-2 border rounded-xl"
+                                        value={newDriver.licensePlate}
+                                        onChange={e => setNewDriver({ ...newDriver, licensePlate: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="pt-4 flex gap-3">
+                                <button type="button" onClick={() => setIsAddModalOpen(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                                <button type="submit" className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">Add Driver</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

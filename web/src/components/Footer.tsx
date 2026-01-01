@@ -8,7 +8,7 @@ export default function Footer() {
             <div className="container mx-auto px-6">
                 <div className="grid md:grid-cols-4 gap-12 mb-12">
                     <div className="space-y-4">
-                        <h2 className="text-3xl font-bold tracking-tighter">Paye</h2>
+                        <h2 className="text-3xl font-bold tracking-tighter">LibCab</h2>
                         <p className="text-gray-400">Moving people, changing lives.</p>
                     </div>
 
@@ -50,7 +50,7 @@ export default function Footer() {
                 </div>
 
                 <div className="pt-8 border-t border-gray-800 flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-gray-500">
-                    <p>© 2025 Paye Technologies Inc.</p>
+                    <p>© 2025 LTP Services Inc.</p>
                     <div className="flex gap-6">
                         <Link href="#" className="hover:text-white">Privacy</Link>
                         <Link href="#" className="hover:text-white">Accessibility</Link>

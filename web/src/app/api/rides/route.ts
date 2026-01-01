@@ -19,16 +19,50 @@ export async function GET() {
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { riderId, originAddress, destAddress, originLat, originLng, destLat, destLng, vehicleType } = body;
+        const { riderId, guestPhone, originAddress, destAddress, originLat, originLng, destLat, destLng, vehicleType } = body;
 
-        if (!riderId || !originAddress || !destAddress) {
+        // Either riderId or guestPhone is required
+        if ((!riderId && !guestPhone) || !originAddress || !destAddress) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+        }
+
+        let finalRiderId = riderId;
+        let finalOrigin = originAddress;
+
+        if (!finalRiderId) {
+            // Fallback: Use or create a placeholder Guest User
+            // check if user exists
+            let guestUser = await prisma.user.findUnique({ where: { email: "guest@libcab.com" } });
+            if (!guestUser) {
+                // Create it
+                // Password hash required? User model has password?
+                // Note: User create might require password.
+                // We'll try to create with dummy password.
+                // Need to import hash? Or just store plain text if my logic allows? 
+                // Schema says String.
+                // We'll just put "guest123".
+                guestUser = await prisma.user.create({
+                    data: {
+                        email: "guest@libcab.com",
+                        name: "Guest User",
+                        password: "guest_placeholder_password_hash",
+                        role: "RIDER",
+                        phone: "0000000000"
+                    }
+                });
+            }
+            finalRiderId = guestUser.id;
+
+            // Hack: Append guest phone to origin address so dispatcher sees it
+            if (guestPhone) {
+                finalOrigin = `${originAddress} [Guest: ${guestPhone}]`;
+            }
         }
 
         const newRide = await prisma.ride.create({
             data: {
-                riderId,
-                originAddress,
+                riderId: finalRiderId,
+                originAddress: finalOrigin,
                 destAddress,
                 originLat: originLat || 0,
                 originLng: originLng || 0,
@@ -44,9 +78,10 @@ export async function POST(req: Request) {
         });
 
         return NextResponse.json(newRide);
-    } catch (error) {
+
+    } catch (error: any) {
         console.error("Ride creation error:", error);
-        return NextResponse.json({ error: "Failed to create ride" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to create ride", details: error.message || String(error) }, { status: 500 });
     }
 }
 
