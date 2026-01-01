@@ -6,13 +6,15 @@ export async function GET() {
         const drivers = await prisma.user.findMany({
             where: { role: 'DRIVER' },
             include: {
-                driverProfile: true,
-                _count: {
-                    select: { ridesAsRider: false } // We need rides as driver, but relations are defined differently
-                }
+                driverProfile: true
             },
             orderBy: { createdAt: 'desc' }
         });
+
+        console.log("API: Fetched drivers count:", drivers.length);
+        console.log("API: Drivers:", JSON.stringify(drivers, null, 2));
+
+        // Map to a more useful format for the UI
 
         // Map to a more useful format for the UI
         const mappedDrivers = drivers.map(d => ({
