@@ -3,35 +3,28 @@
 import React, { useEffect, useState } from "react";
 import Hero from "./Hero";
 import Features from "./Features";
-import { useRouter } from "next/navigation";
+import RiderDashboardContent from "./RiderDashboardContent";
+import DriverDashboardContent from "./DriverDashboardContent";
 
 export default function MainPageContent() {
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [user, setUser] = useState<any>(null);
     const [loading, setLoading] = useState(true);
-
-    const router = useRouter();
 
     useEffect(() => {
         try {
             const storedUser = localStorage.getItem("user");
             if (storedUser) {
-                const user = JSON.parse(storedUser);
-                if (user && user.role) {
-                    if (user.role === "DRIVER") {
-                        router.push("/driver");
-                    } else if (user.role === "RIDER") {
-                        router.push("/rider");
-                    } else if (user.role === "ADMIN") {
-                        router.push("/admin");
-                    }
+                const parsedUser = JSON.parse(storedUser);
+                if (parsedUser && parsedUser.role) {
+                    setUser(parsedUser);
                 }
             }
         } catch (e) {
-            console.error("Auth redirect failed", e);
-            localStorage.removeItem("user"); // Clear potentially corrupt data
+            console.error("Auth session load failed", e);
+            localStorage.removeItem("user");
         }
         setLoading(false);
-    }, [router]);
+    }, []);
 
     if (loading) {
         return (
@@ -39,6 +32,15 @@ export default function MainPageContent() {
                 <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
             </div>
         );
+    }
+
+    if (user) {
+        if (user.role === "RIDER") {
+            return <RiderDashboardContent user={user} />;
+        }
+        if (user.role === "DRIVER") {
+            return <DriverDashboardContent user={user} />;
+        }
     }
 
     return (
