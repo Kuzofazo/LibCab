@@ -19,6 +19,7 @@ export async function GET() {
         // Map to a more useful format for the UI
         const mappedDrivers = drivers.map(d => ({
             id: d.id,
+            driverProfileId: d.driverProfile?.id,
             name: d.name,
             email: d.email,
             phone: d.phone,

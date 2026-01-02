@@ -46,6 +46,7 @@ interface Ride {
 
 interface Driver {
     id: string;
+    driverProfileId: string;
     name: string;
     status: string;
     vehicle: string;
@@ -277,12 +278,26 @@ export default function DispatchPage() {
 
                                         </div>
                                         <div className="flex gap-2">
-                                            <button
-                                                onClick={() => openAssignModal(ride)}
-                                                className="p-2 py-2 bg-black text-white rounded-xl font-bold flex items-center gap-2 group-hover:scale-105 transition-transform text-xs px-4">
-                                                Assign
-                                                <ChevronRight size={14} />
-                                            </button>
+                                            <div className="flex gap-2">
+                                                {ride.driver ? (
+                                                    <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-xl">
+                                                        <div className="w-6 h-6 rounded-full bg-black text-white flex items-center justify-center text-[10px] font-bold">
+                                                            {ride.driver.user.name.charAt(0)}
+                                                        </div>
+                                                        <div className="flex flex-col">
+                                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">ASSIGNED TO</span>
+                                                            <span className="text-xs font-black text-gray-900">{ride.driver.user.name}</span>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => openAssignModal(ride)}
+                                                        className="p-2 py-2 bg-black text-white rounded-xl font-bold flex items-center gap-2 group-hover:scale-105 transition-transform text-xs px-4">
+                                                        Assign
+                                                        <ChevronRight size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -480,7 +495,7 @@ export default function DispatchPage() {
                             ) : (
                                 drivers.map(driver => (
                                     <div key={driver.id} className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-2xl hover:border-black hover:shadow-md transition-all cursor-pointer group"
-                                        onClick={() => handleAssignDriver(driver.id)}
+                                        onClick={() => handleAssignDriver(driver.driverProfileId)}
                                     >
                                         <div className="flex items-center gap-4">
                                             <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-lg font-bold">
