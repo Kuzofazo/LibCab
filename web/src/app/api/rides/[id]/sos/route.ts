@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
-        const rideId = params.id;
+        const { id: rideId } = await params;
 
         console.log(`[SOS ALERT] Triggered for Ride ${rideId}`);
 

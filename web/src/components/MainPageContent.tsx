@@ -3,19 +3,35 @@
 import React, { useEffect, useState } from "react";
 import Hero from "./Hero";
 import Features from "./Features";
-import UserDashboard from "./UserDashboard";
+import { useRouter } from "next/navigation";
 
 export default function MainPageContent() {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [loading, setLoading] = useState(true);
 
+    const router = useRouter();
+
     useEffect(() => {
-        const user = localStorage.getItem("user");
-        if (user) {
-            setIsAuthenticated(true);
+        try {
+            const storedUser = localStorage.getItem("user");
+            if (storedUser) {
+                const user = JSON.parse(storedUser);
+                if (user && user.role) {
+                    if (user.role === "DRIVER") {
+                        router.push("/driver");
+                    } else if (user.role === "RIDER") {
+                        router.push("/rider");
+                    } else if (user.role === "ADMIN") {
+                        router.push("/admin");
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Auth redirect failed", e);
+            localStorage.removeItem("user"); // Clear potentially corrupt data
         }
         setLoading(false);
-    }, []);
+    }, [router]);
 
     if (loading) {
         return (
@@ -23,10 +39,6 @@ export default function MainPageContent() {
                 <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
             </div>
         );
-    }
-
-    if (isAuthenticated) {
-        return <UserDashboard />;
     }
 
     return (
