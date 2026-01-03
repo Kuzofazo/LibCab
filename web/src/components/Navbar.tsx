@@ -39,12 +39,11 @@ export default function Navbar() {
       <div className="container mx-auto px-6 flex items-center justify-between">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 group">
-          <div className="w-10 h-10 bg-[#D32F2F] text-white rounded-xl flex items-center justify-center font-bold text-xl shadow-lg group-hover:scale-105 transition-transform">
-            L
-          </div>
-          <span className={cn("text-2xl font-bold tracking-tighter", isScrolled ? "text-gray-900" : "text-gray-900")}>
-            LibCab
-          </span>
+          <img
+            src="/libcab-logo.png"
+            alt="LibCab Logo"
+            className="h-12 w-auto object-contain group-hover:scale-105 transition-transform"
+          />
         </Link>
 
         {/* Desktop Links */}

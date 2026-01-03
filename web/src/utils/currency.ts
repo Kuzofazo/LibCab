@@ -1,10 +1,12 @@
 export const EXCHANGE_RATE = 185;
 
-export const formatLRD = (usdAmount: number): string => {
+export const formatLRD = (usdAmount: number | null | undefined): string => {
+    if (usdAmount === null || usdAmount === undefined) return "L$ 0";
     return Math.round(usdAmount * EXCHANGE_RATE).toLocaleString('en-US');
 };
 
-export const formatUSD = (amount: number): string => {
+export const formatUSD = (amount: number | null | undefined): string => {
+    if (amount === null || amount === undefined) return "$0.00";
     return amount.toLocaleString('en-US', {
         style: 'currency',
         currency: 'USD',
@@ -13,7 +15,8 @@ export const formatUSD = (amount: number): string => {
     });
 };
 
-export const formatDual = (usdAmount: number): string => {
+export const formatDual = (usdAmount: number | null | undefined): string => {
+    if (usdAmount === null || usdAmount === undefined) return "$0.00 / L$ 0";
     const lrd = formatLRD(usdAmount);
     const usd = formatUSD(usdAmount);
     return `${usd} / L$ ${lrd}`;

@@ -1,7 +1,7 @@
 "use strict";
 "use client";
 
-import React, { useState, Suspense } from "react";
+import React, { useState, Suspense, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import {
     Phone,
@@ -23,8 +23,48 @@ function GuestBookingContent() {
     const [trip, setTrip] = useState({
         pickup: searchParams.get("pickup") || "",
         destination: searchParams.get("destination") || "",
-        payment: "CASH"
+        payment: searchParams.get("payment") || "CASH"
     });
+    const [fareEstimate, setFareEstimate] = useState(3.50);
+
+    // Dynamic Price Calculation
+    useEffect(() => {
+        if (trip.pickup && trip.destination) {
+            // Mock logic: base fare + (length sum / 10)
+            const base = 2.5;
+            const distanceFactor = (trip.pickup.length + trip.destination.length) / 8;
+            const paymentMultiplier = trip.payment === "STRIPE" ? 1.1 : 1.0;
+            const total = (base + distanceFactor) * paymentMultiplier;
+            setFareEstimate(parseFloat(total.toFixed(2)));
+        }
+    }, [trip.pickup, trip.destination, trip.payment]);
+
+    const [rideId, setRideId] = useState<string | null>(null);
+    const [driver, setDriver] = useState<any>(null);
+
+    // Polling for Driver
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (step === 4 && rideId) {
+            interval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/api/rides/${rideId}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        // Check if driver is assigned
+                        if (data.driver || data.status === "ACCEPTED" || data.status === "IN_PROGRESS") {
+                            setDriver(data.driver || { user: { name: "Driver Found" } }); // Fallback if driver obj is partial
+                            // Optionally move to next step or show driver details
+                            // For now, we update the UI in Step 4 to show "Driver Found!"
+                        }
+                    }
+                } catch (e) {
+                    console.error("Polling error", e);
+                }
+            }, 3000);
+        }
+        return () => clearInterval(interval);
+    }, [step, rideId]);
 
     const handleSendOTP = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -72,13 +112,6 @@ function GuestBookingContent() {
 
     const handleRequestRide = async (e: React.FormEvent) => {
         e.preventDefault();
-
-        if (!session) {
-            alert("Please verify your phone number to complete the request.");
-            setStep(1);
-            return;
-        }
-
         setLoading(true);
         try {
             const res = await fetch("/api/rides/guest", {
@@ -94,6 +127,7 @@ function GuestBookingContent() {
 
             if (res.ok) {
                 const ride = await res.json();
+                setRideId(ride.id); // Save ride ID
                 setStep(4);
             } else {
                 alert("Failed to request ride");
@@ -106,23 +140,31 @@ function GuestBookingContent() {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col">
-            <div className="bg-white p-4 shadow-sm border-b sticky top-0 z-10">
+        <div className={`min-h-screen flex flex-col transition-colors duration-500 ${step === 4 ? "bg-gradient-to-br from-yellow-400 via-orange-500 to-red-500" : "bg-gray-50"}`}>
+            {/* Header - Hide or change style when in Step 4 for immersion? Or keep it transparent? */}
+            <div className={`p-4 shadow-sm border-b sticky top-0 z-10 transition-colors duration-500 ${step === 4 ? "bg-white/10 backdrop-blur-md border-white/20 text-white" : "bg-white border-gray-100"}`}>
                 <div className="max-w-md mx-auto flex items-center justify-between">
-                    <h1 className="font-black text-xl tracking-tight">LibCab <span className="text-gray-400 font-medium text-sm">Guest</span></h1>
-                    <div className="text-xs font-bold px-2 py-1 bg-gray-100 rounded-lg">
-                        Step {step} of 4
+                    <div className="flex items-center gap-3">
+                        <img src="/libcab-logo.png" alt="LibCab" className={`h-20 w-auto ${step === 4 ? "brightness-0 invert" : ""}`} />
+                        <span className={`font-medium text-sm ${step === 4 ? "text-white/80" : "text-gray-400"}`}>Guest</span>
                     </div>
+                    {step < 4 && (
+                        <div className="text-xs font-bold px-2 py-1 bg-gray-100 rounded-lg text-black">
+                            Step {step} of 4
+                        </div>
+                    )}
                 </div>
             </div>
 
             <div className="flex-1 flex items-center justify-center p-6">
-                <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden min-h-[400px] flex flex-col relative">
+                <div className={`w-full max-w-md rounded-3xl overflow-hidden min-h-[400px] flex flex-col relative transition-all duration-500 ${step === 4 ? "bg-transparent shadow-none" : "bg-white shadow-xl"}`}>
 
-                    {/* Progress Bar */}
-                    <div className="h-1 bg-gray-100 w-full">
-                        <div className="h-full bg-black transition-all duration-500 ease-out" style={{ width: `${step * 25}%` }} />
-                    </div>
+                    {/* Progress Bar (Hidden in Step 4) */}
+                    {step < 4 && (
+                        <div className="h-1 bg-gray-100 w-full">
+                            <div className="h-full bg-black transition-all duration-500 ease-out" style={{ width: `${step * 25}%` }} />
+                        </div>
+                    )}
 
                     {/* Step 1: Phone */}
                     {step === 1 && (
@@ -219,8 +261,8 @@ function GuestBookingContent() {
                                     <div>
                                         <p className="text-xs font-bold text-gray-500 uppercase">Estimated Fare</p>
                                         <div className="flex items-baseline gap-1">
-                                            <span className="text-2xl font-black text-gray-900">$3.50</span>
-                                            <span className="text-sm font-medium text-gray-500">/ L$ 650</span>
+                                            <span className="text-2xl font-black text-gray-900">${fareEstimate.toFixed(2)}</span>
+                                            <span className="text-sm font-medium text-gray-500">/ L$ {(fareEstimate * 190).toFixed(0)}</span>
                                         </div>
                                     </div>
                                     <div className="text-right">
@@ -241,14 +283,24 @@ function GuestBookingContent() {
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={() => setTrip({ ...trip, payment: "MOBILE_MONEY" })}
-                                                className={`flex-1 py-3 px-4 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all ${trip.payment !== "CASH" ? "border-green-600 bg-green-50 text-green-700" : "border-gray-100 text-gray-400 hover:bg-gray-50 bg-white"}`}
+                                                onClick={() => setTrip({ ...trip, payment: "MOMO" })}
+                                                className={`flex-1 py-3 px-4 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all ${["MOMO", "MTN", "ORANGE", "TIPME"].includes(trip.payment) ? "border-green-600 bg-green-50 text-green-700" : "border-gray-100 text-gray-400 hover:bg-gray-50 bg-white"}`}
                                             >
                                                 <span>📶</span> Mobile Money
                                             </button>
                                         </div>
 
-                                        {trip.payment !== "CASH" && (
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setTrip({ ...trip, payment: "STRIPE" })}
+                                                className={`flex-1 py-3 px-4 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all ${trip.payment === "STRIPE" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-gray-100 text-gray-400 hover:bg-gray-50 bg-white"}`}
+                                            >
+                                                <span>💳</span> Card (Stripe)
+                                            </button>
+                                        </div>
+
+                                        {(["MOMO", "MTN", "ORANGE", "TIPME"].includes(trip.payment)) && (
                                             <div className="grid grid-cols-2 gap-2 animate-in slide-in-from-top-2">
                                                 <button
                                                     type="button"
@@ -282,24 +334,51 @@ function GuestBookingContent() {
 
                     {/* Step 4: Finding Driver */}
                     {step === 4 && (
-                        <div className="p-8 flex-1 flex flex-col items-center justify-center text-center animate-in zoom-in-95 duration-500">
-                            <div className="relative mb-8">
-                                <div className="absolute inset-0 bg-yellow-400 rounded-full animate-ping opacity-20"></div>
-                                <div className="w-24 h-24 bg-yellow-400 rounded-full flex items-center justify-center shadow-lg relative z-10">
-                                    <Loader2 size={48} className="animate-spin text-black" />
+                        <div className="flex-1 flex flex-col items-center justify-center text-center animate-in zoom-in-95 duration-500 text-white relative overflow-hidden">
+                            {/* Decorative bubbles */}
+                            <div className="absolute top-[-50px] right-[-50px] w-40 h-40 bg-white/20 rounded-full blur-3xl"></div>
+                            <div className="absolute bottom-[-20px] left-[-20px] w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
+
+                            {!driver ? (
+                                <>
+                                    <div className="relative mb-8 mt-10">
+                                        <div className="absolute inset-0 bg-white rounded-full animate-ping opacity-25"></div>
+                                        <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-2xl relative z-10">
+                                            <Loader2 size={40} className="animate-spin text-orange-500" />
+                                        </div>
+                                    </div>
+
+                                    <h2 className="text-3xl font-black mb-2 drop-shadow-md">Connecting to Drivers...</h2>
+                                    <p className="text-white/90 max-w-[240px] font-medium mb-8">We are looking for the nearest LibCab for you.</p>
+                                </>
+                            ) : (
+                                <div className="animate-in slide-in-from-bottom-5 duration-500 w-full flex flex-col items-center">
+                                    <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-2xl mb-6 relative">
+                                        <div className="absolute bottom-0 right-0 bg-green-500 p-1.5 rounded-full border-4 border-white">
+                                            <CheckCircle2 size={16} className="text-white" />
+                                        </div>
+                                        <span className="text-3xl">🚖</span>
+                                    </div>
+                                    <h2 className="text-3xl font-black mb-2 drop-shadow-md">Driver Found!</h2>
+                                    <p className="text-white/90 mb-8 font-medium">{driver.user?.name} is on the way.</p>
                                 </div>
-                            </div>
+                            )}
 
-                            <h2 className="text-2xl font-black mb-2">Connecting to Drivers...</h2>
-                            <p className="text-gray-500 max-w-[200px]">We are looking for the nearest LibCab for you.</p>
-
-                            <div className="mt-8 w-full bg-gray-50 p-4 rounded-2xl border border-gray-100 text-left">
-                                <div className="flex items-center gap-3 mb-2">
-                                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Ride Details</span>
+                            <div className="w-full max-w-[85%] bg-white/10 backdrop-blur-md p-5 rounded-2xl border border-white/20 text-left mb-8 shadow-inner">
+                                <div className="flex items-center gap-3 mb-3">
+                                    {driver ? (
+                                        <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,1)]" />
+                                    ) : (
+                                        <div className="w-2 h-2 rounded-full bg-green-300 animate-pulse shadow-[0_0_8px_rgba(134,239,172,0.8)]" />
+                                    )}
+                                    <span className="text-xs font-bold text-white/80 uppercase tracking-wider">{driver ? "Driver Arriving" : "Ride Details"}</span>
                                 </div>
                                 <div className="font-bold text-lg mb-1">{trip.pickup}</div>
-                                <div className="text-gray-400 text-sm mb-2">to</div>
+                                <div className="text-white/60 text-sm mb-2 flex items-center gap-2">
+                                    <div className="h-[1px] w-4 bg-white/40"></div>
+                                    <span className="text-xs">TO</span>
+                                    <div className="h-[1px] w-4 bg-white/40"></div>
+                                </div>
                                 <div className="font-bold text-lg">{trip.destination}</div>
                             </div>
                         </div>

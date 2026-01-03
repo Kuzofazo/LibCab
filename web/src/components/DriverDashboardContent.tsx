@@ -12,7 +12,10 @@ import {
     ChevronRight,
     Power,
     MapPin,
-    Clock
+    Clock,
+    Zap,
+    TrendingUp,
+    ShieldAlert
 } from "lucide-react";
 import { formatDual } from "@/utils/currency";
 
@@ -24,6 +27,19 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     const [activeRide, setActiveRide] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isOnline, setIsOnline] = useState(true);
+    const [liteMode, setLiteMode] = useState(false);
+    const [earningsPeriod, setEarningsPeriod] = useState<"TODAY" | "WEEKLY">("TODAY");
+
+    useEffect(() => {
+        const storedLite = localStorage.getItem("liteMode") === "true";
+        setLiteMode(storedLite);
+    }, []);
+
+    const toggleLiteMode = () => {
+        const newValue = !liteMode;
+        setLiteMode(newValue);
+        localStorage.setItem("liteMode", String(newValue));
+    };
 
     useEffect(() => {
         if (user) {
@@ -57,7 +73,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     };
 
     return (
-        <div className="min-h-screen bg-black text-white">
+        <div className={`min-h-screen ${liteMode ? 'bg-gray-100' : 'bg-black'} text-white transition-colors duration-500`}>
             {/* Top Status Bar */}
             <div className={`mt-20 py-4 px-6 flex items-center justify-between border-b border-white/5 transition-colors duration-500 ${isOnline ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
                 <div className="flex items-center gap-4">
@@ -72,6 +88,17 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 >
                     <Power size={14} />
                     Go {isOnline ? 'Offline' : 'Online'}
+                </button>
+            </div>
+
+            {/* Lite Mode Toggle */}
+            <div className="fixed top-24 right-6 z-40">
+                <button
+                    onClick={toggleLiteMode}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${liteMode ? 'bg-red-600 text-white' : 'bg-white/10 text-white border border-white/5 backdrop-blur-md'}`}
+                >
+                    <Zap size={14} fill={liteMode ? "currentColor" : "none"} />
+                    {liteMode ? 'Lite Mode On' : 'Standard Mode'}
                 </button>
             </div>
 
@@ -91,6 +118,9 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         <div className="flex items-center gap-2 bg-white/5 px-4 py-2 rounded-full border border-white/5 text-xs font-bold">
                                             <Star size={14} className="text-yellow-400 fill-yellow-400" /> 4.9 Rating
                                         </div>
+                                        <div className="flex items-center gap-2 bg-green-500/20 px-4 py-2 rounded-full border border-green-500/20 text-xs font-bold text-green-400">
+                                            <Shield size={14} className="fill-green-400" /> Verified Pro
+                                        </div>
                                         <div className="flex items-center gap-2 bg-white/5 px-4 py-2 rounded-full border border-white/5 text-xs font-bold">
                                             <Car size={14} className="text-red-500" /> Toyota Camry
                                         </div>
@@ -104,12 +134,26 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
 
                             {/* Earnings & Stats */}
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div className="bg-gradient-to-br from-gray-900 to-black p-8 rounded-[2.5rem] border border-white/5 shadow-xl group hover:border-red-500/30 transition-all">
+                                <div className="bg-gradient-to-br from-gray-900 to-black p-8 rounded-[2.5rem] border border-white/5 shadow-xl group hover:border-red-500/30 transition-all relative">
+                                    <div className="absolute top-4 right-4 flex bg-white/5 rounded-lg p-1">
+                                        <button
+                                            onClick={() => setEarningsPeriod("TODAY")}
+                                            className={`px-2 py-1 text-[8px] font-black rounded-md transition-all ${earningsPeriod === "TODAY" ? "bg-red-600 text-white" : "text-gray-500"}`}
+                                        >DAY</button>
+                                        <button
+                                            onClick={() => setEarningsPeriod("WEEKLY")}
+                                            className={`px-2 py-1 text-[8px] font-black rounded-md transition-all ${earningsPeriod === "WEEKLY" ? "bg-red-600 text-white" : "text-gray-500"}`}
+                                        >WEEK</button>
+                                    </div>
                                     <DollarSign className="text-green-500 mb-6 group-hover:scale-110 transition-transform" size={32} />
-                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Today's Earnings</p>
-                                    <h3 className="text-3xl font-black">{formatDual(1250)}</h3>
+                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                                        {earningsPeriod === "TODAY" ? "Today's Earnings" : "Weekly Earnings"}
+                                    </p>
+                                    <h3 className="text-3xl font-black">
+                                        {earningsPeriod === "TODAY" ? formatDual(1250) : formatDual(8450)}
+                                    </h3>
                                     <div className="mt-4 flex items-center gap-1 text-[10px] font-bold text-green-400">
-                                        <Activity size={12} /> +12.5% from yesterday
+                                        <Activity size={12} /> {earningsPeriod === "TODAY" ? "+12.5% from yesterday" : "+8.2% from last week"}
                                     </div>
                                 </div>
                                 <div className="bg-gradient-to-br from-gray-900 to-black p-8 rounded-[2.5rem] border border-white/5 shadow-xl group hover:border-red-500/30 transition-all">
@@ -177,6 +221,13 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                             </button>
                                         </div>
                                     </div>
+                                    {/* Quick SOS in Task */}
+                                    <button
+                                        onClick={() => alert("EMERGENCY SIGNAL SENT TO LIB CAB DISPATCH")}
+                                        className="absolute top-4 right-4 text-red-600 hover:text-red-700 active:scale-95 transition-all p-2 bg-red-50 rounded-xl border border-red-100"
+                                    >
+                                        <ShieldAlert size={20} />
+                                    </button>
                                 </div>
                             ) : (
                                 <div className="bg-gray-900/50 p-20 rounded-[3rem] border-2 border-dashed border-white/10 text-center flex flex-col items-center justify-center space-y-6 group">
