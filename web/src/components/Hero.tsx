@@ -167,7 +167,7 @@ export default function Hero() {
                                     onClick={() => setPaymentMethod("MOMO")}
                                     className={`flex-1 py-3 rounded-xl font-bold text-xs transition-all border-2 ${paymentMethod === "MOMO" ? "border-yellow-400 bg-yellow-50 text-black" : "border-gray-100 bg-gray-50 text-gray-400 hover:bg-white"}`}
                                 >
-                                    MoMo
+                                    Mobile Money
                                 </button>
                                 <button
                                     type="button"

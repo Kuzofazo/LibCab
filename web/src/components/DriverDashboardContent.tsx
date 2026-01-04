@@ -25,6 +25,7 @@ interface DriverDashboardContentProps {
 
 export default function DriverDashboardContent({ user }: DriverDashboardContentProps) {
     const [activeRide, setActiveRide] = useState<any>(null);
+    const [availableRides, setAvailableRides] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isOnline, setIsOnline] = useState(true);
     const [liteMode, setLiteMode] = useState(false);
@@ -43,28 +44,60 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
 
     useEffect(() => {
         if (user) {
-            fetchActiveRide(user.id);
-            const interval = setInterval(() => fetchActiveRide(user.id), 10000);
+            fetchRides(user.id);
+            const interval = setInterval(() => fetchRides(user.id), 5000); // Faster polling for requests
             return () => clearInterval(interval);
         }
     }, [user]);
 
-    const fetchActiveRide = async (userId: string) => {
+    const fetchRides = async (userId: string) => {
         try {
             const res = await fetch("/api/rides");
             const data = await res.json();
 
             if (Array.isArray(data)) {
+                // 1. Find my active ride (Accepted/In Progress)
                 const myActiveRide = data.find(r =>
                     r.driverId === userId &&
                     ["ACCEPTED", "IN_PROGRESS"].includes(r.status)
                 );
                 setActiveRide(myActiveRide);
+
+                // 2. Find available rides (Requested, no driver)
+                // In a real app, filtering by location happens on backend
+                const requests = data.filter(r => r.status === "REQUESTED" && !r.driverId);
+                setAvailableRides(requests);
             }
         } catch (error) {
-            console.error("Failed to fetch active ride", error);
+            console.error("Failed to fetch rides", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleAcceptRide = async (rideId: string) => {
+        if (!user) return;
+        try {
+            const res = await fetch("/api/rides", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    id: rideId,
+                    status: "ACCEPTED",
+                    driverId: user.id
+                })
+            });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                console.error("Accept ride failed:", res.status, errData);
+                alert(`Failed to accept ride: ${errData.details || errData.error}`);
+            } else {
+                // Refresh immediately
+                fetchRides(user.id);
+            }
+        } catch (error) {
+            console.error("Failed to accept ride (network/client error)", error);
         }
     };
 
@@ -170,7 +203,6 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 </div>
                             </div>
 
-                            {/* Active Task / Current Ride */}
                             {activeRide ? (
                                 <div className="bg-white text-gray-900 p-10 rounded-[3rem] shadow-2xl relative overflow-hidden">
                                     <div className="absolute top-0 right-0 px-8 py-3 bg-red-600 text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-bl-3xl">
@@ -228,6 +260,48 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                     >
                                         <ShieldAlert size={20} />
                                     </button>
+                                </div>
+                            ) : availableRides.length > 0 && isOnline ? (
+                                <div className="space-y-6">
+                                    <div className="flex items-center justify-between px-4">
+                                        <h3 className="text-2xl font-black">Available Requests ({availableRides.length})</h3>
+                                    </div>
+                                    {availableRides.map((ride: any) => (
+                                        <div key={ride.id} className="bg-white text-gray-900 p-8 rounded-[2.5rem] shadow-xl border border-white/10 hover:scale-[1.01] transition-transform">
+                                            <div className="flex justify-between items-start mb-6">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-green-600">
+                                                        <DollarSign size={20} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Est. Earning</p>
+                                                        <p className="text-xl font-black">{formatDual(4.50)}</p>
+                                                    </div>
+                                                </div>
+                                                <span className="px-3 py-1 bg-gray-100 rounded-full text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                                                    {ride.vehicleType}
+                                                </span>
+                                            </div>
+
+                                            <div className="space-y-4 mb-8">
+                                                <div className="flex gap-3">
+                                                    <div className="mt-1 min-w-[20px]"><MapPin size={16} className="text-green-600" /></div>
+                                                    <p className="font-bold text-sm">{ride.originAddress}</p>
+                                                </div>
+                                                <div className="flex gap-3">
+                                                    <div className="mt-1 min-w-[20px]"><MapPin size={16} className="text-red-600" /></div>
+                                                    <p className="font-bold text-sm">{ride.destAddress}</p>
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                onClick={() => handleAcceptRide(ride.id)}
+                                                className="w-full py-4 bg-black text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-800 transition-colors shadow-lg"
+                                            >
+                                                Accept Ride
+                                            </button>
+                                        </div>
+                                    ))}
                                 </div>
                             ) : (
                                 <div className="bg-gray-900/50 p-20 rounded-[3rem] border-2 border-dashed border-white/10 text-center flex flex-col items-center justify-center space-y-6 group">

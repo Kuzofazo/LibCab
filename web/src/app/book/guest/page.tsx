@@ -112,6 +112,13 @@ function GuestBookingContent() {
 
     const handleRequestRide = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!session) {
+            alert("Please verify your phone number to complete the booking.");
+            setStep(1);
+            return;
+        }
+
         setLoading(true);
         try {
             const res = await fetch("/api/rides/guest", {
@@ -130,10 +137,13 @@ function GuestBookingContent() {
                 setRideId(ride.id); // Save ride ID
                 setStep(4);
             } else {
-                alert("Failed to request ride");
+                const errData = await res.json();
+                console.error("Ride request failed", errData);
+                alert(`Failed to request ride: ${errData.details || errData.error}`);
             }
-        } catch (err) {
-            alert("Error requesting ride");
+        } catch (err: any) {
+            console.error(err);
+            alert(`Error requesting ride: ${err.message}`);
         } finally {
             setLoading(false);
         }
@@ -284,9 +294,9 @@ function GuestBookingContent() {
                                             <button
                                                 type="button"
                                                 onClick={() => setTrip({ ...trip, payment: "MOMO" })}
-                                                className={`flex-1 py-3 px-4 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all ${["MOMO", "MTN", "ORANGE", "TIPME"].includes(trip.payment) ? "border-green-600 bg-green-50 text-green-700" : "border-gray-100 text-gray-400 hover:bg-gray-50 bg-white"}`}
+                                                className={`flex-1 py-3 px-4 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all ${["MOMO", "MTN", "ORANGE", "TIPME"].includes(trip.payment) ? "border-yellow-400 bg-yellow-50 text-black" : "border-gray-100 text-gray-400 hover:bg-gray-50 bg-white"}`}
                                             >
-                                                <span>📶</span> Mobile Money
+                                                <span>📱</span> Mobile Pay
                                             </button>
                                         </div>
 
@@ -296,29 +306,32 @@ function GuestBookingContent() {
                                                 onClick={() => setTrip({ ...trip, payment: "STRIPE" })}
                                                 className={`flex-1 py-3 px-4 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all ${trip.payment === "STRIPE" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-gray-100 text-gray-400 hover:bg-gray-50 bg-white"}`}
                                             >
-                                                <span>💳</span> Card (Stripe)
+                                                <span>💳</span> Card
                                             </button>
                                         </div>
 
                                         {(["MOMO", "MTN", "ORANGE", "TIPME"].includes(trip.payment)) && (
-                                            <div className="grid grid-cols-2 gap-2 animate-in slide-in-from-top-2">
+                                            <div className="grid grid-cols-3 gap-2 animate-in slide-in-from-top-2">
                                                 <button
                                                     type="button"
                                                     onClick={() => setTrip({ ...trip, payment: "MTN" })}
-                                                    className={`py-2 px-3 rounded-lg border-2 font-bold text-sm transition-all ${trip.payment === "MTN" ? "border-yellow-400 bg-yellow-50 text-black" : "border-gray-100 grayscale opacity-50 hover:grayscale-0 hover:opacity-100 bg-white text-gray-500"}`}
+                                                    className={`py-2 px-1 rounded-lg border-2 font-bold text-[10px] uppercase transition-all ${trip.payment === "MTN" ? "border-yellow-400 bg-yellow-400 text-black" : "border-gray-100 grayscale opacity-70 hover:grayscale-0 hover:opacity-100 bg-white text-gray-500"}`}
                                                 >
-                                                    <div className="w-full flex items-center justify-center gap-2">
-                                                        <div className="w-4 h-4 rounded-full bg-yellow-400" /> MTN
-                                                    </div>
+                                                    MTN MoMo
                                                 </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => setTrip({ ...trip, payment: "ORANGE" })}
-                                                    className={`py-2 px-3 rounded-lg border-2 font-bold text-sm transition-all ${trip.payment === "ORANGE" ? "border-orange-500 bg-orange-50 text-black" : "border-gray-100 grayscale opacity-50 hover:grayscale-0 hover:opacity-100 bg-white text-gray-500"}`}
+                                                    className={`py-2 px-1 rounded-lg border-2 font-bold text-[10px] uppercase transition-all ${trip.payment === "ORANGE" ? "border-orange-500 bg-orange-500 text-white" : "border-gray-100 grayscale opacity-70 hover:grayscale-0 hover:opacity-100 bg-white text-gray-500"}`}
                                                 >
-                                                    <div className="w-full flex items-center justify-center gap-2">
-                                                        <div className="w-4 h-4 rounded-full bg-orange-500" /> Orange
-                                                    </div>
+                                                    Orange
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTrip({ ...trip, payment: "TIPME" })}
+                                                    className={`py-2 px-1 rounded-lg border-2 font-bold text-[10px] uppercase transition-all ${trip.payment === "TIPME" ? "border-blue-400 bg-blue-400 text-white" : "border-gray-100 grayscale opacity-70 hover:grayscale-0 hover:opacity-100 bg-white text-gray-500"}`}
+                                                >
+                                                    TipMe
                                                 </button>
                                             </div>
                                         )}

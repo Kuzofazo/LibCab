@@ -94,13 +94,50 @@ export async function PATCH(req: Request) {
             return NextResponse.json({ error: "Ride ID is required" }, { status: 400 });
         }
 
+        const updateData: any = {
+            status: status || undefined,
+            paymentStatus: paymentStatus || undefined,
+        };
+
+        // Resolve Driver ID if driverId (User ID) is passed
+        if (driverId) {
+            // 1. Try to find existing DriverProfile for this User
+            // Note: Prisma model is uncapitalized in client, usually 'driverProfile'
+            let driverRecord = await prisma.driverProfile.findUnique({
+                where: { userId: driverId }
+            });
+
+            // 2. If not found, create one! This fixes the invalid FK issue.
+            if (!driverRecord) {
+                console.log(`DriverProfile record not found for User ${driverId}. Creating one now...`);
+                // Check if user exists first to be safe
+                const userExists = await prisma.user.findUnique({ where: { id: driverId } });
+                if (userExists) {
+                    driverRecord = await prisma.driverProfile.create({
+                        data: {
+                            userId: driverId,
+                            vehicleType: "Sedan", // Default
+                            licensePlate: "TBD",
+                            driverLicense: "TBD",
+                            isOnline: true
+                        }
+                    });
+                } else {
+                    console.warn(`Cannot create DriverProfile: User ${driverId} does not exist.`);
+                }
+            }
+
+            if (driverRecord) {
+                updateData.driverId = driverRecord.id;
+            } else {
+                console.warn(`Could not resolve or create DriverProfile for User ID ${driverId}. Fallback to raw ID.`);
+                updateData.driverId = driverId;
+            }
+        }
+
         const updatedRide = await prisma.ride.update({
             where: { id },
-            data: {
-                status: status || undefined,
-                driverId: driverId || undefined,
-                paymentStatus: paymentStatus || undefined,
-            },
+            data: updateData,
             include: {
                 rider: { select: { name: true } },
                 driver: { include: { user: { select: { name: true } } } },
@@ -108,7 +145,8 @@ export async function PATCH(req: Request) {
         });
 
         return NextResponse.json(updatedRide);
-    } catch (error) {
-        return NextResponse.json({ error: "Update failed" }, { status: 400 });
+    } catch (error: any) {
+        console.error("Ride update failed:", error);
+        return NextResponse.json({ error: "Update failed", details: error.message }, { status: 500 }); // Changed to 500 to reflect server error
     }
 }
