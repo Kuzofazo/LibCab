@@ -1,6 +1,6 @@
 {
-    "exchangeRate": 200,
-    "baseFare": 5,
+    "exchangeRate": 180,
+    "baseFare": 3,
     "perMile": 1.5,
     "perMinute": 0.2
 }
