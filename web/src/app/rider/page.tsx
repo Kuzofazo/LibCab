@@ -5,6 +5,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import RiderDashboardContent from "@/components/RiderDashboardContent";
 import { useRouter } from "next/navigation";
+import { MapProvider } from "@/components/map/MapProvider";
 
 export default function RiderPage() {
     const router = useRouter();
@@ -42,10 +43,12 @@ export default function RiderPage() {
     }
 
     return (
-        <main className="min-h-screen bg-white">
-            <Navbar />
-            <RiderDashboardContent user={user} />
-            <Footer />
-        </main>
+        <MapProvider>
+            <main className="min-h-screen bg-white">
+                <Navbar />
+                <RiderDashboardContent user={user} />
+                <Footer />
+            </main>
+        </MapProvider>
     );
 }

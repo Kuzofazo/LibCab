@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { memoryCache } from "@/lib/cache";
 
 export async function GET() {
     try {
+        const CACHE_KEY = "admin_dashboard_stats";
+        const cached = memoryCache.get<object>(CACHE_KEY);
+        if (cached) {
+            return NextResponse.json(cached);
+        }
+
         const [totalUsers, activeDrivers, pendingRides, totalRevenue] = await Promise.all([
             prisma.user.count(),
             prisma.driverProfile.count({ where: { isOnline: true } }),
@@ -13,12 +20,17 @@ export async function GET() {
             })
         ]);
 
-        return NextResponse.json({
+        const result = {
             totalUsers,
             activeDrivers,
             pendingRides,
             totalRevenue: totalRevenue._sum.fare || 0
-        });
+        };
+
+        // Cache for 30 seconds — dashboard polls every 10s, no need to hit DB each time
+        memoryCache.set(CACHE_KEY, result, 30);
+
+        return NextResponse.json(result);
     } catch (error) {
         console.error("Dashboard stats error", error);
         return NextResponse.json({ error: "Failed to fetch dashboard stats" }, { status: 500 });

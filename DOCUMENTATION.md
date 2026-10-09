@@ -1,17 +1,20 @@
 # LibCab Project Documentation
 
 ## Overview
+
 LibCab is a comprehensive ride-booking platform tailored for the Liberian market. It typically consists of a web application for riders, drivers, and administrators, and a mobile application for end-users. The system manages rides, drivers, payments (including Mobile Money), and specialized features like "Guest Booking" for users without smartphones.
 
 ## Tech Stack
 
 ### Monorepo
+
 - **Manager**: pnpm
-- **Workspace**: 
+- **Workspace**:
   - `web`: Next.js Web Application
   - `mobile`: Expo / React Native Application
 
 ### Web Application (`/web`)
+
 - **Framework**: Next.js 15 (App Router)
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS, Framer Motion
@@ -21,6 +24,7 @@ LibCab is a comprehensive ride-booking platform tailored for the Liberian market
 - **Testing**: Vitest, React Testing Library
 
 ### Mobile Application (`/mobile`)
+
 - **Framework**: Expo (React Native)
 - **Router**: Expo Router
 - **Language**: TypeScript / JavaScript
@@ -28,7 +32,7 @@ LibCab is a comprehensive ride-booking platform tailored for the Liberian market
 
 ## Project Structure
 
-```
+```text
 c:\Projects\LibCab
 ├── mobile/                 # Expo Mobile App
 │   ├── app/                # Expo Router pages
@@ -50,6 +54,7 @@ c:\Projects\LibCab
 ```
 
 ## Database Schema (Key Models)
+
 - **User**: Core user entity (Rider, Driver, Admin).
 - **DriverProfile**: Extended details for drivers (Vehicle info, License, Live Location).
 - **Ride**: Central booking entity. Tracks origin, destination, status (`REQUESTED`, `ACCEPTED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`), fare, and payment.
@@ -61,16 +66,19 @@ c:\Projects\LibCab
 ## API Reference (Web)
 
 ### Public
+
 - **GET** `/api/announcements`: Global announcements.
 - **POST** `/api/auth/login`: User and Admin login.
 - **POST** `/api/auth/signup`: User registration.
 
 ### Rides
+
 - **POST** `/api/rides/guest`: Book a ride for a guest (Dispatch/Admin).
 - **GET** `/api/rides/[id]`: Get ride details.
 - **PATCH** `/api/rides/[id]`: Update ride status or assign driver.
 
 ### Admin
+
 - **GET/POST** `/api/admin/zones`: Manage pricing zones.
 - **GET** `/api/admin/drivers`: List all drivers.
 - **GET** `/api/admin/stats`: System statistics (Active rides, revenue, etc).
@@ -78,6 +86,7 @@ c:\Projects\LibCab
 ## Configuration & Setup
 
 ### Environment Variables (Web)
+
 Create a `.env` or `.env.local` file in the `web/` directory:
 
 ```bash
@@ -89,23 +98,27 @@ JWT_SECRET="your-secret-key"
 ```
 
 ### Mobile App Configuration
- The mobile app currently targets the Android Emulator loopback address (`http://10.0.2.2:3000`).
- **To run on a physical device**, you must update the API URL in `mobile/context/AuthContext.tsx` to your development machine's local IP address (e.g., `http://192.168.1.x:3000`).
+
+The mobile app currently targets the Android Emulator loopback address (`http://10.0.2.2:3001`).
+**To run on a physical device**, you must update the API URL in `mobile/context/AuthContext.tsx` to your development machine's local IP address (e.g., `http://192.168.1.x:3001`).
 
 ## Running the Project
 
 ### Prerequisites
+
 - Node.js (v18+)
 - pnpm
 - PostgreSQL Database
 
 ### Installation
+
 ```bash
 # Install dependencies for all packages
 pnpm install
 ```
 
 ### Database Setup
+
 ```bash
 cd web
 # Apply migrations to create tables
@@ -116,8 +129,9 @@ npx prisma db seed
 ```
 
 ### Running Development
+
 ```bash
-# Run Web App (http://localhost:3000)
+# Run Web App (http://localhost:3001)
 pnpm --filter web dev
 
 # Run Mobile App

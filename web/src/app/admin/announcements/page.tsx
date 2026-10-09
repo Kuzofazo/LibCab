@@ -3,9 +3,7 @@
 import React, { useState, useEffect } from "react";
 import {
     Send,
-    Users,
     Bell,
-    Search,
     Plus,
     History,
     CheckCircle2,
@@ -13,13 +11,21 @@ import {
     Info,
     Megaphone,
     Calendar,
-    Target,
-    Clock,
-    Loader2
+    Clock
 } from "lucide-react";
 
+interface Announcement {
+    id: string;
+    title: string;
+    content: string;
+    type: "PROMO" | "ALERT" | "UPDATE";
+    target: "ALL" | "RIDERS" | "DRIVERS";
+    status: "SENT" | "SCHEDULED";
+    createdAt: string;
+}
+
 export default function AnnouncementsPage() {
-    const [announcements, setAnnouncements] = useState<any[]>([]);
+    const [announcements, setAnnouncements] = useState<Announcement[]>([]);
     const [loading, setLoading] = useState(true);
     const [isCreating, setIsCreating] = useState(false);
     const [newAnn, setNewAnn] = useState({ title: "", content: "", type: "UPDATE", target: "ALL" });
@@ -60,7 +66,7 @@ export default function AnnouncementsPage() {
     const getTypeIcon = (type: string) => {
         switch (type) {
             case "PROMO": return <Megaphone size={18} className="text-purple-600" />;
-            case "ALERT": return <AlertTriangle size={18} className="text-red-600" />;
+            case "ALERT": return <AlertTriangle size={18} className="text-[#042a22]" />;
             case "UPDATE": return <Info size={18} className="text-blue-600" />;
             default: return <Bell size={18} className="text-gray-600" />;
         }
@@ -69,7 +75,7 @@ export default function AnnouncementsPage() {
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#042a22]"></div>
             </div>
         );
     }
@@ -83,7 +89,7 @@ export default function AnnouncementsPage() {
                 </div>
                 <button
                     onClick={() => setIsCreating(true)}
-                    className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95 flex items-center gap-2"
+                    className="bg-[#042a22] text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-900 transition-all shadow-lg active:scale-95 flex items-center gap-2"
                 >
                     <Plus size={20} />
                     New Announcement
@@ -120,7 +126,7 @@ export default function AnnouncementsPage() {
                             ) : announcements.map((ann) => (
                                 <div key={ann.id} className="p-5 hover:bg-gray-50/50 transition-all flex flex-col md:flex-row gap-4">
                                     <div className={`p-3 rounded-2xl h-fit ${ann.type === "PROMO" ? "bg-purple-50" :
-                                        ann.type === "ALERT" ? "bg-red-50" : "bg-blue-50"
+                                        ann.type === "ALERT" ? "bg-emerald-50" : "bg-blue-50"
                                         }`}>
                                         {getTypeIcon(ann.type)}
                                     </div>
@@ -159,6 +165,7 @@ export default function AnnouncementsPage() {
                                 <h2 className="text-2xl font-black text-gray-900 tracking-tight">Draft Announcement</h2>
                                 <button
                                     onClick={() => setIsCreating(false)}
+                                    title="Close Modal"
                                     className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
                                 >
                                     <Plus className="rotate-45" size={24} />
@@ -171,7 +178,7 @@ export default function AnnouncementsPage() {
                                     <input
                                         type="text"
                                         placeholder="e.g. Free Rides This Friday!"
-                                        className="w-full px-5 py-3.5 bg-gray-50 border-2 border-transparent rounded-2xl focus:border-red-600 focus:bg-white outline-none transition-all font-bold text-gray-900"
+                                        className="w-full px-5 py-3.5 bg-gray-50 border-2 border-transparent rounded-2xl focus:border-[#042a22] focus:bg-white outline-none transition-all font-bold text-gray-900"
                                         value={newAnn.title}
                                         onChange={(e) => setNewAnn({ ...newAnn, title: e.target.value })}
                                     />
@@ -182,7 +189,7 @@ export default function AnnouncementsPage() {
                                     <textarea
                                         rows={4}
                                         placeholder="Enter notification content..."
-                                        className="w-full px-5 py-3.5 bg-gray-50 border-2 border-transparent rounded-2xl focus:border-red-600 focus:bg-white outline-none transition-all font-medium text-gray-900 resize-none"
+                                        className="w-full px-5 py-3.5 bg-gray-50 border-2 border-transparent rounded-2xl focus:border-[#042a22] focus:bg-white outline-none transition-all font-medium text-gray-900 resize-none"
                                         value={newAnn.content}
                                         onChange={(e) => setNewAnn({ ...newAnn, content: e.target.value })}
                                     ></textarea>
@@ -192,7 +199,8 @@ export default function AnnouncementsPage() {
                                     <div className="space-y-1.5">
                                         <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Target Audience</label>
                                         <select
-                                            className="w-full px-5 py-3.5 bg-gray-50 border-2 border-transparent rounded-2xl focus:border-red-600 focus:bg-white outline-none transition-all font-bold text-gray-900 appearance-none"
+                                            title="Select Target Audience"
+                                            className="w-full px-5 py-3.5 bg-gray-50 border-2 border-transparent rounded-2xl focus:border-[#042a22] focus:bg-white outline-none transition-all font-bold text-gray-900 appearance-none"
                                             value={newAnn.target}
                                             onChange={(e) => setNewAnn({ ...newAnn, target: e.target.value })}
                                         >
@@ -204,7 +212,8 @@ export default function AnnouncementsPage() {
                                     <div className="space-y-1.5">
                                         <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Message Type</label>
                                         <select
-                                            className="w-full px-5 py-3.5 bg-gray-50 border-2 border-transparent rounded-2xl focus:border-red-600 focus:bg-white outline-none transition-all font-bold text-gray-900 appearance-none"
+                                            title="Select Message Type"
+                                            className="w-full px-5 py-3.5 bg-gray-50 border-2 border-transparent rounded-2xl focus:border-[#042a22] focus:bg-white outline-none transition-all font-bold text-gray-900 appearance-none"
                                             value={newAnn.type}
                                             onChange={(e) => setNewAnn({ ...newAnn, type: e.target.value })}
                                         >
@@ -226,7 +235,7 @@ export default function AnnouncementsPage() {
                             </button>
                             <button
                                 onClick={handleSend}
-                                className="flex-[2] py-4 bg-[#D32F2F] text-white font-black rounded-2xl hover:bg-[#B71C1C] transition-all shadow-lg shadow-red-200 uppercase tracking-widest text-sm flex items-center justify-center gap-2"
+                                className="flex-[2] py-4 bg-[#042a22] text-white font-black rounded-2xl hover:bg-emerald-900 transition-all shadow-lg shadow-emerald-200 uppercase tracking-widest text-sm flex items-center justify-center gap-2"
                             >
                                 <Send size={18} />
                                 Send Now

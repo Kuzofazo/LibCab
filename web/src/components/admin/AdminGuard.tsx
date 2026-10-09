@@ -2,28 +2,36 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
 
 export default function AdminGuard({ children }: { children: React.ReactNode }) {
     const router = useRouter();
-    const [isLoading, setIsLoading] = useState(true);
+    const [isClient, setIsClient] = useState(false);
+    const [authorized, setAuthorized] = useState(false);
 
     useEffect(() => {
-        const user = localStorage.getItem("user");
-        if (!user) {
+        setIsClient(true);
+        const userStr = localStorage.getItem("user");
+        if (!userStr) {
             router.push("/login");
-        } else {
-            setIsLoading(false);
+            return;
+        }
+        try {
+            const user = JSON.parse(userStr);
+            if (user.role !== "ADMIN" && user.role !== "SUPER_ADMIN") {
+                router.push("/login");
+                return;
+            }
+            if (user.forcePasswordChange && window.location.pathname !== "/admin/change-password") {
+                router.push("/admin/change-password");
+                return;
+            }
+            setAuthorized(true);
+        } catch {
+            router.push("/login");
         }
     }, [router]);
 
-    if (isLoading) {
-        return (
-            <div className="flex h-screen w-full items-center justify-center bg-gray-50">
-                <Loader2 className="h-8 w-8 animate-spin text-[#D32F2F]" />
-            </div>
-        );
-    }
+    if (!isClient || !authorized) return null;
 
     return <>{children}</>;
 }

@@ -1,8 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { memoryCache } from "@/lib/cache";
+import bcrypt from "bcryptjs";
+
+const DRIVERS_CACHE_KEY = "admin_drivers_list";
 
 export async function GET() {
     try {
+        const cached = memoryCache.get<any[]>(DRIVERS_CACHE_KEY);
+        if (cached) {
+            return NextResponse.json(cached);
+        }
+
         const drivers = await prisma.user.findMany({
             where: { role: 'DRIVER' },
             include: {
@@ -12,11 +21,7 @@ export async function GET() {
         });
 
         console.log("API: Fetched drivers count:", drivers.length);
-        console.log("API: Drivers:", JSON.stringify(drivers, null, 2));
 
-        // Map to a more useful format for the UI
-
-        // Map to a more useful format for the UI
         const mappedDrivers = drivers.map(d => ({
             id: d.id,
             driverProfileId: d.driverProfile?.id,
@@ -28,10 +33,13 @@ export async function GET() {
             vehicle: `${d.driverProfile?.vehicleColor || ""} ${d.driverProfile?.vehicleModel || ""}`.trim() || "N/A",
             licensePlate: d.driverProfile?.licensePlate || "N/A",
             joinedDate: new Date(d.createdAt).toLocaleDateString(),
-            // Mocking these for now as we don't have complex trip/earning logic yet
+            currentLat: d.driverProfile?.currentLat || null,
+            currentLng: d.driverProfile?.currentLng || null,
             totalTrips: 0,
             earningsToday: 0
         }));
+
+        memoryCache.set(DRIVERS_CACHE_KEY, mappedDrivers, 15);
 
         return NextResponse.json(mappedDrivers);
     } catch (error) {
@@ -48,25 +56,15 @@ export async function POST(req: Request) {
             driverLicense, issuedDate, expiryDate, dob, pob, country
         } = body;
 
-        // Simple validation
         if (!name || !email || !phone) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
-        // Check if user exists
         const existing = await prisma.user.findUnique({ where: { email } });
         if (existing) {
             return NextResponse.json({ error: "User with this email already exists" }, { status: 400 });
         }
 
-        // Hash default password
-        // Note: For a real app, we'd email them a setup link. Here we use a default.
-        // const hashedPassword = await bcrypt.hash("Driver123!", 10);
-        // Using simple string for now if bcrypt import is an issue with strict mode, 
-        // but package.json has bcryptjs. Let's try to import it.
-
-        // Dynamic import to avoid build issues if not used elsewhere commonly or if types are strict
-        const bcrypt = require("bcryptjs");
         const hashedPassword = await bcrypt.hash("Driver123!", 10);
 
         const newDriver = await prisma.user.create({
@@ -80,7 +78,6 @@ export async function POST(req: Request) {
                     create: {
                         vehicleModel: vehicle,
                         licensePlate,
-                        // Using 'as any' to bypass stale Prisma client types
                         driverLicense,
                         licenseIssued: issuedDate ? new Date(issuedDate) : null,
                         licenseExpiry: expiryDate ? new Date(expiryDate) : null,
@@ -89,7 +86,7 @@ export async function POST(req: Request) {
                         country,
                         isOnline: false,
                         rating: 5.0
-                    } as any
+                    }
                 }
             },
             include: {
@@ -97,9 +94,12 @@ export async function POST(req: Request) {
             }
         });
 
+        memoryCache.invalidate(DRIVERS_CACHE_KEY);
+
         return NextResponse.json(newDriver);
     } catch (error) {
         console.error("Create driver error", error);
         return NextResponse.json({ error: "Failed to create driver" }, { status: 500 });
     }
 }
+

@@ -25,4 +25,4 @@ Notes & recommendations:
 
 Please include any additional logs or context if needed.  
 
-(Prepared by LibCab maintainer tooling run.)
+(Prepared by AfriCab maintainer tooling run.)

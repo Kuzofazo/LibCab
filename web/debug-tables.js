@@ -1,15 +1,15 @@
-const BASE_URL = "http://localhost:3000";
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
-async function runTests() {
-    console.log("Debugging Tables...");
-    const res = await fetch(`${BASE_URL}/api/rides`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestPhone: "DEBUG" })
-    });
-
-    const data = await res.json();
-    console.log("Tables:", JSON.stringify(data, null, 2));
+async function list() {
+  try {
+    const tables = await prisma.$queryRawUnsafe(`SELECT name FROM sqlite_master WHERE type='table'`);
+    console.log("TABLES:", tables.map(t => t.name).join(", "));
+  } catch (e) {
+    console.error("ERROR LISTING TABLES:", e);
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
-runTests();
+list();

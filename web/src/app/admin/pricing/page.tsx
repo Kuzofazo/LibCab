@@ -106,7 +106,7 @@ export default function PricingPage() {
                 </div>
                 <button
                     onClick={savePricing}
-                    className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95 flex items-center gap-2">
+                    className="bg-[#042a22] text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-900 transition-all shadow-lg active:scale-95 flex items-center gap-2">
                     <Save size={20} />
                     Save All Changes
                 </button>
@@ -127,18 +127,19 @@ export default function PricingPage() {
 
                         <div className="space-y-4">
                             {/* Exchange Rate Input */}
-                            <div className="p-4 bg-red-50 rounded-2xl border border-red-100">
+                            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
                                 <div className="flex items-center justify-between mb-3">
-                                    <label className="text-xs font-black text-red-600 uppercase tracking-widest">USD to LRD Exchange Rate</label>
-                                    <RefreshCcw size={14} className="text-red-400" />
+                                    <label className="text-xs font-black text-[#042a22] uppercase tracking-widest">USD to LRD Exchange Rate</label>
+                                    <RefreshCcw size={14} className="text-emerald-400" />
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <span className="font-bold text-gray-400 text-lg">$1 = </span>
                                     <input
                                         type="number"
+                                        title="USD to LRD Exchange Rate"
                                         value={exchangeRate}
                                         onChange={(e) => setExchangeRate(Number(e.target.value))}
-                                        className="flex-1 bg-white border-transparent rounded-xl px-3 py-2 focus:ring-2 focus:ring-red-200 outline-none font-black text-red-600 text-xl"
+                                        className="flex-1 bg-white border-transparent rounded-xl px-3 py-2 focus:ring-2 focus:ring-emerald-200 outline-none font-black text-[#042a22] text-xl"
                                     />
                                     <span className="font-black text-gray-900">LRD</span>
                                 </div>
@@ -150,9 +151,10 @@ export default function PricingPage() {
                                     <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                     <input
                                         type="number"
+                                        title="Default Base Fare"
                                         value={baseRate}
                                         onChange={(e) => setBaseRate(Number(e.target.value))}
-                                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-2xl focus:ring-2 focus:ring-red-100 focus:bg-white focus:border-red-600 outline-none transition-all font-bold text-lg"
+                                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-2xl focus:ring-2 focus:ring-emerald-100 focus:bg-white focus:border-[#042a22] outline-none transition-all font-bold text-lg"
                                     />
                                     <div className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
                                         ≈ L$ {formatLRD(baseRate)}
@@ -166,9 +168,10 @@ export default function PricingPage() {
                                     <TrendingUp className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                     <input
                                         type="number"
+                                        title="Rate Per KM"
                                         value={perMile}
                                         onChange={(e) => setPerMile(Number(e.target.value))}
-                                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-2xl focus:ring-2 focus:ring-red-100 focus:bg-white focus:border-red-600 outline-none transition-all font-bold text-lg"
+                                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-2xl focus:ring-2 focus:ring-emerald-100 focus:bg-white focus:border-[#042a22] outline-none transition-all font-bold text-lg"
                                     />
                                     <div className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
                                         ≈ L$ {formatLRD(perMile)}
@@ -182,9 +185,10 @@ export default function PricingPage() {
                                     <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                     <input
                                         type="number"
+                                        title="Rate Per Minute"
                                         value={perMinute}
                                         onChange={(e) => setPerMinute(Number(e.target.value))}
-                                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-2xl focus:ring-2 focus:ring-red-100 focus:bg-white focus:border-red-600 outline-none transition-all font-bold text-lg"
+                                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-2xl focus:ring-2 focus:ring-emerald-100 focus:bg-white focus:border-[#042a22] outline-none transition-all font-bold text-lg"
                                     />
                                     <div className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
                                         ≈ L$ {formatLRD(perMinute)}
@@ -203,10 +207,10 @@ export default function PricingPage() {
                         </div>
                     </div>
 
-                    <div className="bg-gradient-to-br from-[#D32F2F] to-[#B71C1C] p-6 rounded-3xl text-white shadow-xl">
+                    <div className="bg-gradient-to-br from-[#042a22] to-[#064e3b] p-6 rounded-3xl text-white shadow-xl">
                         <h3 className="text-lg font-bold mb-2">Smart Surge Pricing</h3>
                         <p className="text-sm opacity-90 mb-4">Automatically increase fares during high demand periods in Monrovia.</p>
-                        <button className="w-full py-3 bg-white text-[#D32F2F] font-bold rounded-2xl hover:bg-gray-100 transition-colors shadow-lg">
+                        <button className="w-full py-3 bg-white text-[#042a22] font-bold rounded-2xl hover:bg-gray-100 transition-colors shadow-lg">
                             Configure Algorithms
                         </button>
                     </div>
@@ -217,7 +221,7 @@ export default function PricingPage() {
                     <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden min-h-[600px] flex flex-col">
                         <div className="p-6 border-b border-gray-50 flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <div className="p-3 bg-red-50 text-red-600 rounded-2xl">
+                                <div className="p-3 bg-emerald-50 text-[#042a22] rounded-2xl">
                                     <MapPin size={24} />
                                 </div>
                                 <div>
@@ -227,6 +231,7 @@ export default function PricingPage() {
                             </div>
                             <button
                                 onClick={() => setIsAddZoneModalOpen(true)}
+                                title="Add New Zone"
                                 className="p-3 bg-gray-50 text-gray-600 rounded-2xl hover:bg-gray-100 transition-colors">
                                 <Plus size={24} />
                             </button>
@@ -276,10 +281,10 @@ export default function PricingPage() {
                                             </td>
                                             <td className="px-6 py-5 text-right">
                                                 <div className="flex justify-end gap-2">
-                                                    <button className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-all">
+                                                    <button title="Save Zone" className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-all">
                                                         <Save size={18} />
                                                     </button>
-                                                    <button className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all">
+                                                    <button title="Delete Zone" className="p-2 text-gray-400 hover:text-[#042a22] hover:bg-emerald-50 rounded-xl transition-all">
                                                         <Trash2 size={18} />
                                                     </button>
                                                 </div>
@@ -336,7 +341,7 @@ export default function PricingPage() {
                                 setIsAddZoneModalOpen(false);
                                 setNewZone({ name: "", city: "Monrovia", baseFare: 5, multiplier: 1.0 });
                                 alert("Zone added successfully!");
-                            } catch (error) {
+                            } catch {
                                 alert("Error adding zone");
                             }
                         }} className="p-6 space-y-4">
@@ -344,6 +349,7 @@ export default function PricingPage() {
                                 <label className="block text-sm font-bold text-gray-700 mb-1">Zone Name</label>
                                 <input
                                     type="text"
+                                    title="Zone Name"
                                     required
                                     className="w-full px-4 py-2 border rounded-xl"
                                     value={newZone.name}
@@ -354,6 +360,7 @@ export default function PricingPage() {
                                 <label className="block text-sm font-bold text-gray-700 mb-1">Base Fare ($)</label>
                                 <input
                                     type="number"
+                                    title="Base Fare"
                                     required
                                     className="w-full px-4 py-2 border rounded-xl"
                                     value={newZone.baseFare}
@@ -365,6 +372,7 @@ export default function PricingPage() {
                                 <input
                                     type="number"
                                     step="0.1"
+                                    title="Multiplier"
                                     required
                                     className="w-full px-4 py-2 border rounded-xl"
                                     value={newZone.multiplier}
@@ -373,7 +381,7 @@ export default function PricingPage() {
                             </div>
                             <div className="pt-4 flex gap-3">
                                 <button type="button" onClick={() => setIsAddZoneModalOpen(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
-                                <button type="submit" className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">Add Zone</button>
+                                <button type="submit" className="flex-1 py-3 bg-[#042a22] text-white rounded-xl font-bold">Add Zone</button>
                             </div>
                         </form>
                     </div>

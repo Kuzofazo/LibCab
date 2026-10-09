@@ -5,6 +5,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import DriverDashboardContent from "@/components/DriverDashboardContent";
 import { useRouter } from "next/navigation";
+import { MapProvider } from "@/components/map/MapProvider";
 
 export default function DriverPage() {
     const router = useRouter();
@@ -35,17 +36,19 @@ export default function DriverPage() {
 
     if (loading || !user) {
         return (
-            <div className="min-h-screen bg-black flex items-center justify-center">
-                <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
+            <div className="min-h-screen bg-white flex items-center justify-center">
+                <div className="w-16 h-16 border-4 border-slate-900 border-t-transparent rounded-full animate-spin" />
             </div>
         );
     }
 
     return (
-        <main className="min-h-screen bg-black">
-            <Navbar />
-            <DriverDashboardContent user={user} />
-            <Footer />
-        </main>
+        <MapProvider>
+            <main className="min-h-screen bg-white text-slate-900">
+                <Navbar />
+                <DriverDashboardContent user={user} />
+                <Footer />
+            </main>
+        </MapProvider>
     );
 }

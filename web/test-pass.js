@@ -1,6 +1,6 @@
 const { Client } = require('pg');
 
-const passwords = ['postgres', 'admin', 'password', '', 'root', 'enterprisedb', 'dbpass', 'paye', 'libcab'];
+const passwords = ['postgres', 'admin', 'password', '', 'root', 'enterprisedb', 'dbpass', 'paye', 'africab'];
 const ports = [5432, 5433, 5444];
 const users = ['postgres', 'enterprisedb', 'admin', 'root'];
 const db = 'postgres';

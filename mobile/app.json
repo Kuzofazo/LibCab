@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "LibCab",
-    "slug": "libcab-mobile",
-    "scheme": "libcab",
+    "name": "AfriCab",
+    "slug": "africab-mobile",
+    "scheme": "africab",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,19 +16,19 @@
     "ios": {
       "supportsTablet": true,
       "config": {
-        "googleMapsApiKey": "YOUR_IOS_GOOGLE_MAPS_API_KEY_HERE"
+        "googleMapsApiKey": "AIzaSyBMK-zDtqR4S1WxOltsyea2lwQnvv8D6SI"
       },
-      "bundleIdentifier": "com.libcab.mobile"
+      "bundleIdentifier": "com.africab.mobile"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.libcab.mobile",
+      "package": "com.africab.mobile",
       "config": {
         "googleMaps": {
-          "apiKey": "YOUR_ANDROID_GOOGLE_MAPS_API_KEY_HERE"
+          "apiKey": "AIzaSyCp08LOWmXg0M6M1ONnfxjukFO-0OoWQpQ"
         }
       },
       "edgeToEdgeEnabled": true

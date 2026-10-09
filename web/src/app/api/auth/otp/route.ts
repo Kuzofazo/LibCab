@@ -15,39 +15,11 @@ export async function POST(req: Request) {
         const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
         // Create or update guest session with new OTP
-        if ((prisma as any).guestSession) {
-            const existing = await (prisma as any).guestSession.findUnique({
-                where: { phone }
-            });
-
-            if (existing) {
-                await (prisma as any).guestSession.update({
-                    where: { phone },
-                    data: { otpCode: otp, otpExpires: expires }
-                });
-            } else {
-                await (prisma as any).guestSession.create({
-                    data: { phone, otpCode: otp, otpExpires: expires }
-                });
-            }
-        } else {
-            // Raw Fallback
-            // Check existence
-            const existing = await prisma.$queryRaw`SELECT * FROM "GuestSession" WHERE "phone" = ${phone}`;
-            if (Array.isArray(existing) && existing.length > 0) {
-                await prisma.$executeRaw`
-                    UPDATE "GuestSession" 
-                    SET "otpCode" = ${otp}, "otpExpires" = ${expires}, "updatedAt" = ${new Date()}
-                    WHERE "phone" = ${phone}
-                 `;
-            } else {
-                const id = `guest-${Date.now()}`;
-                await prisma.$executeRaw`
-                    INSERT INTO "GuestSession" ("id", "phone", "otpCode", "otpExpires", "isActive", "createdAt", "updatedAt")
-                    VALUES (${id}, ${phone}, ${otp}, ${expires}, true, ${new Date()}, ${new Date()})
-                `;
-            }
-        }
+        await prisma.guestSession.upsert({
+            where: { phone },
+            update: { otpCode: otp, otpExpires: expires },
+            create: { phone, otpCode: otp, otpExpires: expires }
+        });
 
         await sendOTP(phone, otp);
 

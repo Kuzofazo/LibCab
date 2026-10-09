@@ -41,13 +41,13 @@ export default function Features() {
             <div className="container mx-auto px-6 relative z-10">
                 <div className="text-center max-w-3xl mx-auto mb-16">
                     <span className="px-4 py-2 bg-red-100 text-red-700 rounded-full text-sm font-semibold inline-block mb-4">
-                        Why LibCab?
+                        Why AfriCab?
                     </span>
                     <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-6 text-gray-900">
-                        Built for your <span className="bg-gradient-to-r from-red-600 to-red-500 bg-clip-text text-transparent">comfort</span>
+                        Professional <span className="bg-gradient-to-r from-red-600 to-red-500 bg-clip-text text-transparent">Transport</span> in Liberia
                     </h2>
                     <p className="text-xl text-gray-600">
-                        LibCab is built to deliver the best ride-sharing experience in Liberia.
+                        AfriCab is built to deliver the best ride-sharing and reliable cab experience in Monrovia and beyond.
                     </p>
                 </div>
 

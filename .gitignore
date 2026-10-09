@@ -1,1 +1,49 @@
-node_modules
+# Dependencies
+node_modules/
+.pnpm-store/
+.pnp/
+.pnp.js
+
+# Next.js and React Native build artifacts
+.next/
+out/
+build/
+dist/
+.expo/
+web-build/
+*.tsbuildinfo
+next-env.d.ts
+expo-env.d.ts
+
+# SQLite and local database files
+*.db
+*.db-journal
+*.sqlite
+dev.db
+web/prisma/dev.db
+
+# Environment variables & secrets
+.env
+.env*.local
+*.env
+*.pem
+*.key
+
+# Temporary debug logs and reports
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.txt
+*.jsonl
+*lint_results.json
+tmp/
+scratch/
+web/scratch/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

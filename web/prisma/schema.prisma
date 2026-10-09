@@ -8,27 +8,176 @@ generator client {
 //   url      = "file:./dev.db"
 // }
 
-// Example for PostgreSQL
+// Example for PostgreSQL (Switched to SQLite due to local availability)
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
-  name      String?
-  phone     String?
-  role      String   @default("RIDER") // RIDER, DRIVER, ADMIN
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  email               String   @unique
+  password            String?
+  name                String?
+  phone               String?
+  role                String   @default("RIDER") // RIDER, DRIVER, ADMIN, SUPER_ADMIN
+  forcePasswordChange Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  authProvider        String   @default("LOCAL") // LOCAL, GOOGLE
+  authProviderId      String?
+  preferredPaymentMethod String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   // Relations
   driverProfile DriverProfile?
   ridesAsRider  Ride[]         @relation("RiderRides")
   reviews       Review[]
   complaints    Complaint[]    @relation("UserComplaints")
+  adminLogs     DispatcherLog[] @relation("AdminLogs")
+  
+  // Multi-Tenant Fleet Relation
+  companyId     String?
+  company       Company?       @relation(fields: [companyId], references: [id])
+}
+
+model Company {
+  id            String   @id @default(cuid())
+  name          String
+  code          String   @unique // e.g. "MINING-CORP-LR", "UN-OPS-MONROVIA", "TOTAL-ENERGIES-LR"
+  category      String   @default("LOGISTICS") // LOGISTICS, MINING, NGO, CORPORATE, HOTEL, GOVERNMENT, COOPERATIVE, TRANSIT
+  email         String?
+  phone         String?
+  contactPerson String?
+  address       String?
+  plan          String   @default("ENTERPRISE") // STARTER, PRO, ENTERPRISE, GOVERNMENT
+  apiKey        String?  @unique
+  status        String   @default("ACTIVE") // ACTIVE, SUSPENDED, PENDING
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  users         User[]
+  vehicles      Vehicle[]
+  trackerDevices TrackerDevice[]
+  geofences     Geofence[]
+  fleetAssets   FleetAsset[]
+}
+
+model Vehicle {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  name            String   // e.g. "Toyota Land Cruiser #4", "Hino Cargo Truck #12"
+  make            String?  // e.g. "Toyota", "Yamaha", "Mercedes-Benz"
+  model           String?  // e.g. "Land Cruiser Prado", "Crux 110", "Actros"
+  year            Int?
+  licensePlate    String?  // e.g. "LB-4892-A"
+  vin             String?  // Vehicle Identification Number
+  color           String?
+  vehicleType     String   @default("CAR") // CAR, MOTORBIKE, TRICYCLE, DELIVERY_VAN, TRUCK, ELECTRONIC_DEVICE, CARGO, BUS
+  status          String   @default("ACTIVE") // ACTIVE, IDLE, IN_TRANSIT, MAINTENANCE, OFFLINE, IMMOBILIZED
+  
+  // Driver assignment
+  driverName      String?
+  driverPhone     String?
+  driverLicense   String?
+  
+  // Telemetry Snapshot
+  currentLat      Float?   @default(6.3156)
+  currentLng      Float?   @default(-10.8074)
+  speed           Float?   @default(0)
+  heading         Float?   @default(0)
+  altitude        Float?   @default(0)
+  batteryLevel    Int?     @default(100)
+  signalStrength  Int?     @default(100)
+  fuelLevel       Float?   @default(100)
+  odometerKm      Float?   @default(0)
+  engineRpm       Int?     @default(0)
+  engineHours     Float?   @default(0)
+  coolantTemp     Int?     @default(85)
+  isIgnitionOn    Boolean  @default(false)
+  isImmobilized   Boolean  @default(false)
+  geofenceZone    String?  @default("Greater Monrovia Corridor")
+  lastPing        DateTime? @default(now())
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  trackerDevice   TrackerDevice?
+  telemetryLogs   TelemetryLog[]
+  locationLogs    LocationLog[]
+}
+
+model TrackerDevice {
+  id              String   @id @default(cuid())
+  imei            String   @unique // Primary hardware IMEI (15 digits)
+  serialNumber    String?
+  model           String   @default("Teltonika FMB920") // "Teltonika FMB920", "Teltonika FMC130", "Jimi JC400 AI Dashcam", "Teltonika OBD FMC003", "Concox JM-VL03"
+  protocol        String   @default("TELTONIKA") // TELTONIKA, JIMI_CONCOX, OBD_II_CAN, QUECLINK, STREAMAX_MDVR, MOBILE_APP
+  simCardNumber   String?
+  simImsi         String?
+  firmwareVersion String?  @default("v1.4.2-rel")
+  status          String   @default("ONLINE") // ONLINE, OFFLINE, UNPROVISIONED, TAMPER_ALERT
+  isTamperAlert   Boolean  @default(false)
+  batteryBackupPct Int?    @default(100)
+  voltageInput    Float?   @default(12.6)
+  lastPing        DateTime? @default(now())
+  
+  companyId       String?
+  company         Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  
+  vehicleId       String?  @unique
+  vehicle         Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  telemetryLogs   TelemetryLog[]
+}
+
+model TelemetryLog {
+  id              String   @id @default(cuid())
+  vehicleId       String
+  vehicle         Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  trackerId       String?
+  tracker         TrackerDevice? @relation(fields: [trackerId], references: [id], onDelete: SetNull)
+  
+  lat             Float
+  lng             Float
+  speed           Float?   @default(0)
+  heading         Float?   @default(0)
+  altitude        Float?   @default(0)
+  isIgnitionOn    Boolean  @default(false)
+  fuelLevel       Float?   @default(100)
+  batteryLevel    Int?     @default(100)
+  signalStrength  Int?     @default(100)
+  engineRpm       Int?     @default(0)
+  odometer        Float?   @default(0)
+  coolantTemp     Int?     @default(85)
+  errorCodes      String?  // Diagnostic Trouble Codes (DTC) e.g. "P0300,P0171"
+  rawPayload      String?  // Raw NMEA or Protocol Hex frame
+  
+  timestamp       DateTime @default(now())
+  createdAt       DateTime @default(now())
+}
+
+model Geofence {
+  id              String   @id @default(cuid())
+  companyId       String?
+  company         Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name            String   // e.g. "Freeport of Monrovia Cargo Zone", "Sinkor Diplomatic District"
+  description     String?
+  fenceType       String   @default("CIRCLE") // CIRCLE, POLYGON
+  coordinates     String   // GeoJSON or center lat/lng "[6.3156, -10.8074]"
+  radiusMeters    Float?   @default(1500)
+  speedLimit      Float?   @default(60) // km/h
+  isAlertEnabled  Boolean  @default(true)
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model DriverProfile {
@@ -40,19 +189,89 @@ model DriverProfile {
   vehicleColor String?
   licensePlate String?
   driverLicense String?
+  imei         String?  @unique // Phone IMEI hardware anchor
+  deviceId     String?  // Device Identifier
   licenseIssued DateTime?
   licenseExpiry DateTime?
   dob           DateTime?
   pob           String?
   country       String?  @default("Liberia")
   rating       Float    @default(5.0)
+  reviewCount  Int      @default(0)
   isOnline     Boolean  @default(false)
   currentLat   Float?
   currentLng   Float?
+  speed        Float?   @default(0) // Live Speed (km/h)
+  heading      Float?   @default(0) // Direction in degrees (0-360)
+  batteryLevel Int?     @default(100) // Device Battery %
+  signalStrength Int?   @default(100) // Cellular Signal (0-100)
+  lastPing     DateTime? // Last Telemetry Heartbeat
 
-  rides Ride[]
+  rides        Ride[]
+  locationLogs LocationLog[]
 }
 
+model LocationLog {
+  id           String   @id @default(cuid())
+  driverId     String?
+  driver       DriverProfile? @relation(fields: [driverId], references: [id])
+  assetId      String?
+  asset        FleetAsset?    @relation(fields: [assetId], references: [id])
+  vehicleId    String?
+  vehicle      Vehicle?       @relation(fields: [vehicleId], references: [id])
+  lat          Float
+  lng          Float
+  speed        Float?   @default(0)
+  heading      Float?   @default(0)
+  batteryLevel Int?     @default(100)
+  createdAt    DateTime @default(now())
+}
+
+model FleetOrganization {
+  id            String   @id @default(cuid())
+  name          String
+  code          String   @unique // e.g. "MINING-CORP-LR", "UN-OPS-MONROVIA"
+  category      String   @default("LOGISTICS") // LOGISTICS, MINING, NGO, CORPORATE, HOTEL, GOVERNMENT
+  email         String?
+  phone         String?
+  contactPerson String?
+  plan          String   @default("ENTERPRISE") // STARTER, PRO, ENTERPRISE
+  apiKey        String?  @unique
+  status        String   @default("ACTIVE") // ACTIVE, SUSPENDED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  assets        FleetAsset[]
+}
+
+model FleetAsset {
+  id            String   @id @default(cuid())
+  orgId         String
+  organization  FleetOrganization @relation(fields: [orgId], references: [id])
+  companyId     String?
+  company       Company?          @relation(fields: [companyId], references: [id])
+  name          String   // e.g. "Toyota Land Cruiser #4", "Yamaha Delivery Bike 12"
+  assetType     String   @default("CAR") // CAR, MOTORBIKE, TRICYCLE, DELIVERY_VAN, TRUCK, ELECTRONIC_DEVICE, CARGO
+  licensePlate  String?  // Car License Plate
+  imei          String   @unique // Key tracking point (Phone/GPS Tracker IMEI)
+  trackerModel  String?  // e.g. "Teltonika FMB920", "AfriCab Tracker App", "Concox GT06"
+  driverName    String?  // Assigned operator
+  driverPhone   String?
+  status        String   @default("ACTIVE") // ACTIVE, IDLE, IN_TRANSIT, MAINTENANCE, OFFLINE
+  currentLat    Float?
+  currentLng    Float?
+  speed         Float?   @default(0)
+  heading       Float?   @default(0)
+  batteryLevel  Int?     @default(100)
+  signalStrength Int?    @default(100)
+  fuelLevel     Float?   @default(100) // Fuel/Power percentage
+  geofenceZone  String?  // Assigned geofence
+  lastPing      DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  locationLogs  LocationLog[]
+}
 
 model GuestSession {
   id        String   @id @default(cuid())
@@ -81,15 +300,19 @@ model Ride {
   destLat       Float          @default(0)
   destLng       Float          @default(0)
   vehicleType   String?
+  rideCategory  String         @default("Regular") // Regular, Comfort, VIP
   distance      Float?
   fare          Float?
-  paymentMethod String         @default("CASH") // CASH, MOBILE_MONEY
+  paymentMethod String         @default("MOMO") // MOMO, MOBILE_MONEY, CARD
+  customerPaymentPhone String?
+  driverPaymentPhone   String?
   createdAt     DateTime       @default(now())
   startedAt     DateTime?
   completedAt   DateTime?
-  review        Review?
+  reviews       Review[]
   payments      PaymentTransaction[]
   sosAlert      Boolean        @default(false)
+  isArchived    Boolean        @default(false)
   shareToken    String?
 }
 
@@ -99,7 +322,7 @@ model PaymentTransaction {
   ride        Ride     @relation(fields: [rideId], references: [id])
   amount      Float
   currency    String   @default("LRD") // LRD or USD
-  provider    String   // "MTN", "ORANGE", "CASH"
+  provider    String   // "MTN", "ORANGE", "CARD"
   status      String   // "PENDING", "SUCCESS", "FAILED"
   externalId  String?  // Reference from Mobile Money provider
   createdAt   DateTime @default(now())
@@ -107,22 +330,26 @@ model PaymentTransaction {
 }
 
 model DispatcherLog {
-  id          String   @id @default(cuid())
+  id           String   @id @default(cuid())
   dispatcherId String?
-  action      String   // "MANUAL_BOOKING", "EDIT_RIDE", "ASSIGN_DRIVER"
-  details     String?  // JSON or text details
-  createdAt   DateTime @default(now())
+  dispatcher   User?    @relation("AdminLogs", fields: [dispatcherId], references: [id])
+  action       String   // "MANUAL_BOOKING", "EDIT_RIDE", "ASSIGN_DRIVER"
+  details      String?  // JSON or text details
+  createdAt    DateTime @default(now())
 }
 
 model Review {
-  id        String   @id @default(cuid())
-  rideId    String   @unique
-  ride      Ride     @relation(fields: [rideId], references: [id])
-  userId    String // Who wrote the review
-  user      User     @relation(fields: [userId], references: [id])
-  rating    Int
-  comment   String?
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  rideId     String
+  ride       Ride     @relation(fields: [rideId], references: [id])
+  userId     String   // Who wrote the review
+  user       User     @relation(fields: [userId], references: [id])
+  targetRole String   @default("DRIVER") // "DRIVER" = rider rates driver, "RIDER" = driver rates rider
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@unique([rideId, targetRole])
 }
 
 model Coupon {
@@ -165,4 +392,32 @@ model Zone {
   status     String   @default("ACTIVE") // ACTIVE, INACTIVE
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+model SystemInsight {
+  id              String   @id @default(cuid())
+  type            String   // e.g., "DRIVER_DISTRIBUTION", "STAFFING", "REVIEW_FLAG", "UX_IMPROVEMENT"
+  category        String   @default("TACTICAL") // TACTICAL, STRATEGIC, UIUX
+  title           String
+  description     String
+  suggestedAction String
+  impactScore     Int      @default(0) // 0-100 projected improvement
+  metricsData     String?  // JSON context (e.g., active requests, wait times)
+  status          String   @default("PENDING") // PENDING, ACCEPTED, REJECTED, IGNORED
+  priority        String   @default("MEDIUM") // HIGH, MEDIUM, LOW
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model SystemConfig {
+  key   String @id
+  value String
+}
+
+model PerformanceMetric {
+  id        String   @id @default(cuid())
+  metric    String   // e.g., "AVG_WAIT_TIME", "CANCEL_RATE", "ACTIVE_DRIVERS"
+  value     Float
+  context   String?  // JSON context (e.g., Zone ID or Hour)
+  timestamp DateTime @default(now())
 }
