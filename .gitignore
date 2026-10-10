@@ -27,6 +27,8 @@ web/prisma/dev.db
 # .env.local contains real secrets and is ignored
 .env*.local
 *.env.local
+vercel.env
+*.env.production
 *.pem
 *.key
 
