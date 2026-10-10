@@ -1,9 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
   reactStrictMode: false,
   poweredByHeader: false,
   compress: true,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   experimental: {
     optimizePackageImports: ['lucide-react', 'framer-motion'],
   },

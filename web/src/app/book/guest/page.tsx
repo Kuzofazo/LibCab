@@ -1187,7 +1187,7 @@ function GuestBookingContent() {
                     passengerName: trip.name || "Guest Rider",
                     driverName: driver?.driver?.user?.name || selectedDriver?.name || "Verified AfriCab Driver",
                     vehicleInfo: `${driver?.driver?.vehicleColor || selectedDriver?.vehicleColor || ""} ${driver?.driver?.vehicleModel || selectedDriver?.vehicleModel || ""}`.trim(),
-                    licensePlate: driver?.driver?.licensePlate || selectedDriver?.licensePlate,
+                    licensePlate: (driver?.driver?.licensePlate || selectedDriver?.licensePlate) || undefined,
                     eta: liveEta || undefined
                 }}
             />

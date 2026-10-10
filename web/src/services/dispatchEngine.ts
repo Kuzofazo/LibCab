@@ -53,7 +53,7 @@ export class DispatchEngine {
             } else {
                 // Fallback: match with any registered driver in the system
                 const anyDriver = await prisma.driverProfile.findFirst({
-                    where: { isApproved: true },
+                    where: { isOnline: true },
                     include: { user: true }
                 }) || await prisma.driverProfile.findFirst({
                     include: { user: true }
