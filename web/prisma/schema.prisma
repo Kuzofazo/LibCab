@@ -186,6 +186,13 @@ model DriverProfile {
   driverLicense String?
   imei         String?  @unique // Phone IMEI hardware anchor
   deviceId     String?  // Device Identifier
+  pushToken    String?  // Expo Push Token or FCM token
+  fcmToken     String?  // Native Firebase Cloud Messaging token
+  devicePlatform String? @default("android") // android, ios, web
+  pushNotificationEnabled Boolean @default(true)
+  soundEnabled Boolean  @default(true)
+  vibrationEnabled Boolean @default(true)
+  maxDispatchRadiusKm Float? @default(10.0)
   licenseIssued DateTime?
   licenseExpiry DateTime?
   dob           DateTime?
@@ -204,6 +211,7 @@ model DriverProfile {
 
   rides        Ride[]
   locationLogs LocationLog[]
+  rideOffers   RideOffer[]
 }
 
 model LocationLog {
@@ -309,6 +317,7 @@ model Ride {
   sosAlert      Boolean        @default(false)
   isArchived    Boolean        @default(false)
   shareToken    String?
+  rideOffers    RideOffer[]
 }
 
 model PaymentTransaction {
@@ -416,3 +425,22 @@ model PerformanceMetric {
   context   String?  // JSON context (e.g., Zone ID or Hour)
   timestamp DateTime @default(now())
 }
+
+model RideOffer {
+  id            String        @id @default(cuid())
+  rideId        String
+  ride          Ride          @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  driverId      String
+  driver        DriverProfile @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  status        String        @default("PENDING") // PENDING, ACCEPTED, DECLINED, EXPIRED, MISSED
+  distanceKm    Float?
+  etaMinutes    Int?
+  offeredAt     DateTime      @default(now())
+  expiresAt     DateTime
+  respondedAt   DateTime?
+
+  @@unique([rideId, driverId])
+  @@index([driverId, status])
+  @@index([rideId, status])
+}
+

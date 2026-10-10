@@ -278,11 +278,17 @@ export async function PATCH(req: Request) {
         });
 
         // Broadcast real-time SSE stream update
-        let eventType: "RIDE_ACCEPTED" | "DRIVER_ARRIVED" | "RIDE_UPDATED" = "RIDE_UPDATED";
+        let eventType: "RIDE_ACCEPTED" | "DRIVER_ARRIVED" | "RIDE_UPDATED" | "RIDE_CANCELLED" = "RIDE_UPDATED";
         if (status === "ACCEPTED" || (driverId && !updateData.status)) {
             eventType = "RIDE_ACCEPTED";
         } else if (status === "ARRIVED") {
             eventType = "DRIVER_ARRIVED";
+        } else if (status === "CANCELLED") {
+            eventType = "RIDE_CANCELLED";
+            await prisma.rideOffer.updateMany({
+                where: { rideId: id, status: "PENDING" },
+                data: { status: "EXPIRED", respondedAt: new Date() },
+            }).catch(() => {});
         }
 
         rideStreamManager.publish({

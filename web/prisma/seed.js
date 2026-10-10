@@ -5,8 +5,23 @@ const prisma = new PrismaClient();
 async function main() {
     const hashedPassword = await bcrypt.hash('password123', 10);
     const adminPassword = await bcrypt.hash('1234', 10);
+    const sysAdminPassword = await bcrypt.hash('Libcab#@01', 10);
 
-    console.log('Seeding System Admin...');
+    console.log('Seeding System Admin (Daniel Ofosu)...');
+    await prisma.user.upsert({
+        where: { email: 'danielofosu@libcab.com' },
+        update: { password: sysAdminPassword, role: 'SUPER_ADMIN', name: 'Daniel Ofosu', isActive: true, forcePasswordChange: false },
+        create: {
+            email: 'danielofosu@libcab.com',
+            password: sysAdminPassword,
+            name: 'Daniel Ofosu',
+            role: 'SUPER_ADMIN',
+            isActive: true,
+            forcePasswordChange: false,
+        },
+    });
+
+    console.log('Seeding Legacy Admin...');
     await prisma.user.upsert({
         where: { email: 'admin@africab.com' },
         update: { password: adminPassword, role: 'SUPER_ADMIN', name: 'System Admin', isActive: true, forcePasswordChange: false },

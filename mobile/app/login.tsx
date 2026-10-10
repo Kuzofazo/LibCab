@@ -12,6 +12,7 @@ export default function LoginScreen() {
     const [loading, setLoading] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
 
     const handleLogin = async () => {
         if (!email || !password) {
@@ -58,8 +59,18 @@ export default function LoginScreen() {
                             placeholderTextColor="#999"
                             value={password}
                             onChangeText={setPassword}
-                            secureTextEntry
+                            secureTextEntry={!showPassword}
                         />
+                        <TouchableOpacity 
+                            onPress={() => setShowPassword(!showPassword)}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                            <Ionicons 
+                                name={showPassword ? "eye-off-outline" : "eye-outline"} 
+                                size={20} 
+                                color="#666" 
+                            />
+                        </TouchableOpacity>
                     </View>
 
                     <TouchableOpacity style={styles.forgotBtn}>

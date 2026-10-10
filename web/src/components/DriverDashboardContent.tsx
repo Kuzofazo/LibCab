@@ -21,7 +21,10 @@ import {
     FileText,
     RefreshCw,
     Wifi,
-    WifiOff
+    WifiOff,
+    Bell,
+    Volume2,
+    AlertTriangle
 } from "lucide-react";
 import { formatDual } from "@/utils/currency";
 import type { MapMarker } from "@/components/MapComponent";
@@ -44,6 +47,137 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     const [gpsBroadcasting, setGpsBroadcasting] = useState(false);
     const gpsIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const [completingTrip, setCompletingTrip] = useState(false);
+    const [incomingOffer, setIncomingOffer] = useState<{
+        rideId: string;
+        originAddress: string;
+        destAddress: string;
+        fare: number;
+        distanceKm: number;
+        etaMinutes: number;
+        vehicleType?: string;
+        countdown: number;
+    } | null>(null);
+    const [pushPermission, setPushPermission] = useState<string>("default");
+    const [testingPush, setTestingPush] = useState(false);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const incomingOfferRef = useRef<any>(null);
+    incomingOfferRef.current = incomingOffer;
+
+    // Web Audio Synthesizer: 2-tone harmonic chime (880Hz -> 1174Hz)
+    const playChimeSound = useCallback(() => {
+        try {
+            if (typeof window === "undefined") return;
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+            if (!AudioCtx) return;
+            const ctx = audioContextRef.current || new AudioCtx();
+            audioContextRef.current = ctx;
+            if (ctx.state === "suspended") {
+                ctx.resume();
+            }
+
+            const now = ctx.currentTime;
+            const osc1 = ctx.createOscillator();
+            const gain1 = ctx.createGain();
+            osc1.type = "sine";
+            osc1.frequency.setValueAtTime(880, now);
+            gain1.gain.setValueAtTime(0.4, now);
+            gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+            osc1.connect(gain1);
+            gain1.connect(ctx.destination);
+            osc1.start(now);
+            osc1.stop(now + 0.35);
+
+            const osc2 = ctx.createOscillator();
+            const gain2 = ctx.createGain();
+            osc2.type = "sine";
+            osc2.frequency.setValueAtTime(1174.66, now + 0.16);
+            gain2.gain.setValueAtTime(0.4, now + 0.16);
+            gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+            osc2.connect(gain2);
+            gain2.connect(ctx.destination);
+            osc2.start(now + 0.16);
+            osc2.stop(now + 0.6);
+
+            if (typeof navigator !== "undefined" && navigator.vibrate) {
+                navigator.vibrate([400, 200, 400]);
+            }
+        } catch (e) {
+            console.warn("Chime playback notice:", e);
+        }
+    }, []);
+
+    // Check notification permission on mount
+    useEffect(() => {
+        if (typeof Notification !== "undefined") {
+            setPushPermission(Notification.permission);
+        }
+    }, []);
+
+    // Real-Time SSE Stream for Incoming Ride Offers
+    useEffect(() => {
+        if (!user || !isOnline) return;
+
+        const sse = new EventSource("/api/rides/stream");
+
+        sse.onmessage = (event) => {
+            try {
+                const payload = JSON.parse(event.data);
+
+                if (payload.type === "RIDE_OFFER_RECEIVED") {
+                    const offerData = payload.data?.ride || payload.data;
+                    const targetDriverId = payload.driverId;
+
+                    // Trigger if matching this driver
+                    if (!targetDriverId || targetDriverId === user.id || targetDriverId === user.driverProfileId) {
+                        playChimeSound();
+
+                        // System Web Notification if page is backgrounded / minimized
+                        if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
+                            new Notification("🚖 New AfriCab Ride Request!", {
+                                body: `Pickup: ${offerData.originAddress} • Fare: $${Number(offerData.fare || 5).toFixed(2)}`,
+                                icon: "/favicon.ico",
+                            });
+                        }
+
+                        setIncomingOffer({
+                            rideId: offerData.id || payload.rideId,
+                            originAddress: offerData.originAddress,
+                            destAddress: offerData.destAddress,
+                            fare: offerData.fare || 5.0,
+                            distanceKm: offerData.distanceKm || 1.8,
+                            etaMinutes: offerData.etaMinutes || 4,
+                            vehicleType: offerData.vehicleType || "Car",
+                            countdown: 45,
+                        });
+
+                        // Start countdown
+                        if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                        let secondsLeft = 45;
+                        countdownTimerRef.current = setInterval(() => {
+                            secondsLeft -= 1;
+                            if (secondsLeft <= 0) {
+                                clearInterval(countdownTimerRef.current!);
+                                setIncomingOffer(null);
+                            } else {
+                                setIncomingOffer((prev) => prev ? { ...prev, countdown: secondsLeft } : null);
+                            }
+                        }, 1000);
+                    }
+                } else if (payload.type === "RIDE_TAKEN" || payload.type === "RIDE_CANCELLED") {
+                    if (incomingOfferRef.current?.rideId === payload.rideId) {
+                        setIncomingOffer(null);
+                        if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                    }
+                }
+            } catch {}
+        };
+
+        return () => {
+            sse.close();
+            if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+        };
+    }, [user, isOnline, playChimeSound]);
 
     const fetchRides = useCallback(async (userId: string) => {
         try {
@@ -75,7 +209,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 const requests = data.filter(r => r.status === "REQUESTED" && !r.driverId);
                 setAvailableRides(requests);
             }
-        } catch (error) {
+        } catch {
             // Silently absorb transient disconnects
         } finally {
             setLoading(false);
@@ -90,30 +224,82 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
         }
     }, [user, fetchRides]);
 
+    // Atomic Ride Acceptance via /api/rides/accept
     const handleAcceptRide = async (rideId: string) => {
         if (!user) return;
         try {
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-            const res = await fetch("/api/rides", {
-                method: "PATCH",
+            const res = await fetch("/api/rides/accept", {
+                method: "POST",
                 headers: { 
                     "Content-Type": "application/json",
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 },
                 body: JSON.stringify({
-                    id: rideId,
-                    status: "ACCEPTED",
-                    driverId: user.id,
+                    rideId,
                     driverPaymentPhone: user.phone || "+231 88 012 3456"
                 })
             });
 
-            if (res.ok) {
+            const data = await res.json();
+
+            if (res.ok && data.success) {
+                setIncomingOffer(null);
+                if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
                 fetchRides(user.id);
+            } else if (res.status === 409 || data.code === "ALREADY_TAKEN") {
+                alert("Trip Claimed: Another nearby driver accepted this ride request.");
+                setIncomingOffer(null);
+                if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                fetchRides(user.id);
+            } else {
+                alert(data.error || "Failed to accept ride request.");
             }
         } catch (error) {
             console.error("Failed to accept ride", error);
         }
+    };
+
+    // Decline Ride Offer
+    const handleDeclineRide = async (rideId: string) => {
+        setIncomingOffer(null);
+        if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+        try {
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            await fetch("/api/rides/decline", {
+                method: "POST",
+                headers: { 
+                    "Content-Type": "application/json",
+                    ...(token ? { "Authorization": `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({ rideId })
+            });
+        } catch {}
+    };
+
+    // Test Audio & Notification
+    const handleTestNotification = async () => {
+        setTestingPush(true);
+        playChimeSound();
+
+        if (typeof Notification !== "undefined") {
+            if (Notification.permission === "granted") {
+                new Notification("🔔 AfriCab Driver Sound & Alert Test", {
+                    body: "Background push alerts and audible chimes are active and functioning correctly.",
+                    icon: "/favicon.ico",
+                });
+            } else if (Notification.permission !== "denied") {
+                const perm = await Notification.requestPermission();
+                setPushPermission(perm);
+                if (perm === "granted") {
+                    new Notification("🔔 AfriCab Notifications Enabled!", {
+                        body: "You will now receive incoming ride alerts even when your browser tab is minimized.",
+                    });
+                }
+            }
+        }
+
+        setTimeout(() => setTestingPush(false), 800);
     };
 
     const handleUpdateStatus = async (status: string) => {
@@ -348,6 +534,84 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
 
             <div className="container mx-auto px-4 sm:px-6 py-8">
                 <div className="max-w-6xl mx-auto space-y-8">
+                    {/* Real-Time Incoming Ride Offer Modal */}
+                    {incomingOffer && (
+                        <div className="fixed inset-0 z-[150] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+                            <div className="bg-white rounded-3xl max-w-lg w-full border-2 border-emerald-500 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                <div className="bg-slate-900 text-white p-6 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center border border-red-500/30 animate-pulse">
+                                            <Bell size={20} />
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-black tracking-wider uppercase text-emerald-400 block">Instant Match Available</span>
+                                            <h3 className="text-lg font-black text-white">New Ride Request</h3>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-2xl font-black text-amber-400">{incomingOffer.countdown}s</span>
+                                        <span className="text-[10px] text-slate-400 block uppercase font-bold">Expires</span>
+                                    </div>
+                                </div>
+
+                                <div className="h-1.5 w-full bg-slate-100">
+                                    <div 
+                                        className="h-full bg-emerald-500 transition-all duration-1000 ease-linear"
+                                        style={{ width: `${(incomingOffer.countdown / 45) * 100}%` }}
+                                    />
+                                </div>
+
+                                <div className="p-6 space-y-6">
+                                    <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                        <div>
+                                            <span className="text-[10px] font-black text-slate-400 uppercase block">Estimated Fare</span>
+                                            <span className="text-xl font-black text-slate-900">{formatDual(incomingOffer.fare)}</span>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="text-[10px] font-black text-slate-400 uppercase block">Distance to Pickup</span>
+                                            <span className="text-xl font-black text-emerald-600">{incomingOffer.distanceKm.toFixed(1)} km</span>
+                                            <span className="text-[10px] font-bold text-slate-500 block">~{incomingOffer.etaMinutes} mins away</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                        <div className="flex items-start gap-3">
+                                            <MapPin size={16} className="text-emerald-600 mt-0.5 shrink-0" />
+                                            <div>
+                                                <span className="text-[9px] font-black text-slate-400 uppercase block">Pickup Address</span>
+                                                <p className="text-xs font-bold text-slate-900">{incomingOffer.originAddress}</p>
+                                            </div>
+                                        </div>
+                                        <div className="border-t border-slate-200 pt-2 flex items-start gap-3">
+                                            <Navigation size={16} className="text-red-600 mt-0.5 shrink-0" />
+                                            <div>
+                                                <span className="text-[9px] font-black text-slate-400 uppercase block">Destination Address</span>
+                                                <p className="text-xs font-bold text-slate-900">{incomingOffer.destAddress}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-3 pt-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeclineRide(incomingOffer.rideId)}
+                                            className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black text-xs uppercase tracking-wider transition-colors"
+                                        >
+                                            Decline
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleAcceptRide(incomingOffer.rideId)}
+                                            className="flex-[2] py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-colors shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2"
+                                        >
+                                            <CheckCircle2 size={16} /> Accept Ride Request
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Receipt Modal / Viewer if viewing receipt */}
                     {viewingReceiptRide && (
                         <div className="fixed inset-0 z-[200] bg-slate-900/70 backdrop-blur-sm overflow-y-auto flex" onClick={(e) => { if (e.target === e.currentTarget) setViewingReceiptRide(null); }}>
@@ -645,6 +909,40 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
 
                         {/* Sidebar */}
                         <div className="lg:col-span-4 space-y-6">
+                            {/* Ride Alert & Push Notification Status Card */}
+                            <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
+                                            <Bell size={16} />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-sm font-black text-slate-900">Ride Alerts</h4>
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase">Background Push &amp; Sound</p>
+                                        </div>
+                                    </div>
+                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${isOnline ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'}`}>
+                                        {isOnline ? 'Active' : 'Offline'}
+                                    </span>
+                                </div>
+
+                                <p className="text-xs text-slate-500 leading-relaxed">
+                                    When customers place ride requests in your radius, your device receives instant high-priority audio &amp; vibration alerts.
+                                </p>
+
+                                <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        disabled={testingPush}
+                                        onClick={handleTestNotification}
+                                        className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-900 rounded-xl font-black text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 border border-slate-200"
+                                    >
+                                        <Volume2 size={14} className="text-emerald-600" />
+                                        {testingPush ? "Playing Test Chime..." : "Test Chime & Alert"}
+                                    </button>
+                                </div>
+                            </div>
+
                             <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm">
                                 <AnnouncementFeed />
                             </div>

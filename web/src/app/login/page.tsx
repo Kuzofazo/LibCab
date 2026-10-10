@@ -3,12 +3,13 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Mail, Lock, Loader2 } from "lucide-react";
+import { ArrowLeft, Mail, Lock, Loader2, Eye, EyeOff } from "lucide-react";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 
 export default function LoginPage() {
     const router = useRouter();
     const [isLoading, setIsLoading] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
     const [formData, setFormData] = useState({
         email: "",
         password: "",
@@ -76,9 +77,9 @@ export default function LoginPage() {
                             >
                                 Email address
                             </label>
-                            <div className="mt-1 relative rounded-md shadow-sm">
-                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <Mail className="h-5 w-5 text-gray-400" />
+                            <div className="mt-1 relative rounded-lg shadow-sm">
+                                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                                    <Mail className="h-5 w-5 text-gray-500" />
                                 </div>
                                 <input
                                     id="email"
@@ -86,7 +87,7 @@ export default function LoginPage() {
                                     type="email"
                                     autoComplete="email"
                                     required
-                                    className="focus:ring-[#042a22] focus:border-[#042a22] block w-full pl-10 sm:text-sm border-gray-300 rounded-lg p-3"
+                                    className="block w-full pl-11 pr-4 py-3 sm:text-base border border-gray-300 rounded-lg bg-white text-gray-900 font-medium placeholder:text-gray-400 focus:ring-2 focus:ring-[#042a22] focus:border-[#042a22] outline-none transition-colors"
                                     placeholder="you@example.com"
                                     value={formData.email}
                                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -101,21 +102,33 @@ export default function LoginPage() {
                             >
                                 Password
                             </label>
-                            <div className="mt-1 relative rounded-md shadow-sm">
-                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <Lock className="h-5 w-5 text-gray-400" />
+                            <div className="mt-1 relative rounded-lg shadow-sm">
+                                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                                    <Lock className="h-5 w-5 text-gray-500" />
                                 </div>
                                 <input
                                     id="password"
                                     name="password"
-                                    type="password"
+                                    type={showPassword ? "text" : "password"}
                                     autoComplete="current-password"
                                     required
-                                    className="focus:ring-[#042a22] focus:border-[#042a22] block w-full pl-10 sm:text-sm border-gray-300 rounded-lg p-3"
+                                    className="block w-full pl-11 pr-12 py-3 sm:text-base border border-gray-300 rounded-lg bg-white text-gray-900 font-medium placeholder:text-gray-400 focus:ring-2 focus:ring-[#042a22] focus:border-[#042a22] outline-none transition-colors"
                                     placeholder="••••••••"
                                     value={formData.password}
                                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                                 />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-500 hover:text-gray-800 focus:outline-none transition-colors cursor-pointer"
+                                    aria-label={showPassword ? "Hide password" : "Show password"}
+                                >
+                                    {showPassword ? (
+                                        <EyeOff className="h-5 w-5" />
+                                    ) : (
+                                        <Eye className="h-5 w-5" />
+                                    )}
+                                </button>
                             </div>
                         </div>
 

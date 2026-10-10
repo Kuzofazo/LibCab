@@ -18,7 +18,16 @@
       "config": {
         "googleMapsApiKey": "AIzaSyBMK-zDtqR4S1WxOltsyea2lwQnvv8D6SI"
       },
-      "bundleIdentifier": "com.africab.mobile"
+      "bundleIdentifier": "com.africab.mobile",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "fetch",
+          "remote-notification",
+          "location"
+        ],
+        "NSLocationWhenInUseUsageDescription": "AfriCab requires access to your location to match you with nearby riders and calculate pickup ETAs.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "AfriCab uses background location to alert you to nearby passenger ride requests even when the app is in the background or your device is locked."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -31,13 +40,35 @@
           "apiKey": "AIzaSyCp08LOWmXg0M6M1ONnfxjukFO-0OoWQpQ"
         }
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "VIBRATE",
+        "WAKE_LOCK",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "RECEIVE_BOOT_COMPLETED"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#D32F2F"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow AfriCab to access your location to match you with nearby riders."
+        }
+      ]
     ]
   }
 }

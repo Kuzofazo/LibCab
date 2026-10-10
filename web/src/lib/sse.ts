@@ -6,10 +6,14 @@ export type RideEventType =
     | "DRIVER_ASSIGNED" 
     | "RIDE_CREATED" 
     | "RIDE_REQUESTED" 
+    | "RIDE_OFFER_RECEIVED"
+    | "RIDE_TAKEN"
+    | "RIDE_OFFER_EXPIRED"
     | "RIDE_ACCEPTED" 
     | "DRIVER_ARRIVED"
     | "DRIVER_ONLINE" 
     | "DRIVER_OFFLINE"
+    | "RIDE_CANCELLED"
     | "SOS_ALERT";
 
 export interface RideEventPayload {
