@@ -23,9 +23,10 @@ dev.db
 web/prisma/dev.db
 
 # Environment variables & secrets
-.env
+# .env is committed as a template (has placeholder values only)
+# .env.local contains real secrets and is ignored
 .env*.local
-*.env
+*.env.local
 *.pem
 *.key
 
