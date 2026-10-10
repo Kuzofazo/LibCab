@@ -3,8 +3,10 @@
   "private": true,
   "packageManager": "pnpm@9",
   "scripts": {
-    "dev": "pnpm --filter web dev",
-    "start": "pnpm --filter web start",
+    "dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "start": "npm --prefix web run start",
+    "postinstall": "npm --prefix web run postinstall",
     "install-all": "pnpm install"
   },
   "pnpm": {
