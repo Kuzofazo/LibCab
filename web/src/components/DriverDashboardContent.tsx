@@ -526,36 +526,37 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
         <div className="min-h-screen bg-white text-slate-900 transition-colors duration-300">
             {/* Top Status Bar */}
             <div className="border-b border-slate-200 bg-white sticky top-16 z-30 shadow-sm">
-                <div className="container mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <div className={`w-3 h-3 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-                        <span className="font-black text-xs uppercase tracking-wider text-slate-800">
-                            {isOnline ? 'Active & Receiving Dispatch Requests' : 'You are currently Offline'}
+                <div className="container mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <div className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full shrink-0 ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                        <span className="font-black text-[10px] sm:text-xs uppercase tracking-wider text-slate-800 truncate">
+                            <span className="hidden sm:inline">{isOnline ? 'Active & Receiving Dispatch Requests' : 'You are currently Offline'}</span>
+                            <span className="sm:hidden">{isOnline ? 'Active & Online' : 'Offline'}</span>
                         </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                         <button
                             type="button"
                             onClick={() => setIsPasswordModalOpen(true)}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-full font-black text-xs uppercase tracking-wider bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition-all shadow-sm active:scale-95"
+                            className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full font-black text-[10px] sm:text-xs uppercase tracking-wider bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition-all shadow-sm active:scale-95"
                             title="Change Driver Password"
                         >
-                            <KeyRound size={13} className="text-emerald-700" />
+                            <KeyRound size={12} className="text-emerald-700 shrink-0" />
                             <span className="hidden sm:inline">Change Password</span>
-                            <span className="sm:hidden">Password</span>
+                            <span className="sm:hidden">Pwd</span>
                         </button>
 
                         <button
                             onClick={toggleStatus}
-                            className={`flex items-center gap-2 px-5 py-2 rounded-full font-black text-xs uppercase tracking-wider transition-all shadow-sm ${
+                            className={`flex items-center gap-1.5 px-3 sm:px-5 py-1.5 sm:py-2 rounded-full font-black text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-sm ${
                                 isOnline 
                                     ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300' 
                                     : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                             }`}
                         >
-                            <Power size={13} />
-                            Go {isOnline ? 'Offline' : 'Online'}
+                            <Power size={12} className="shrink-0" />
+                            <span className="hidden xs:inline">Go </span>{isOnline ? 'Offline' : 'Online'}
                         </button>
                     </div>
                 </div>
@@ -944,8 +945,8 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                             </div>
 
                             {/* Earnings & Stats */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm relative">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div className="bg-slate-50 p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-sm relative">
                                     <div className="absolute top-4 right-4 flex bg-white rounded-lg p-0.5 border border-slate-200">
                                         <button
                                             onClick={() => setEarningsPeriod("TODAY")}
@@ -963,30 +964,30 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         {earningsPeriod === "TODAY" ? "Today's Net Earnings" : "Weekly Net Earnings"}
                                     </p>
                                     <h3 className="text-2xl font-black text-slate-900">
-                                        {earningsPeriod === "TODAY" ? formatDual(totalEarningsToday > 0 ? totalEarningsToday : 12.50) : formatDual(84.50)}
+                                        {earningsPeriod === "TODAY" ? formatDual(totalEarningsToday) : formatDual(totalEarningsToday * 7)}
                                     </h3>
-                                    <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-emerald-600">
-                                        <Activity size={11} /> {earningsPeriod === "TODAY" ? "+12.5% from yesterday" : "+8.2% from last week"}
+                                    <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-slate-400">
+                                        <Activity size={11} /> {completedRides.length > 0 ? (earningsPeriod === "TODAY" ? "Based on today's trips" : "Estimated from daily average") : "No trips completed yet"}
                                     </div>
                                 </div>
 
-                                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
+                                <div className="bg-slate-50 p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
                                     <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center mb-4 border border-blue-100">
                                         <Clock size={20} />
                                     </div>
                                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-0.5">Hours Online</p>
-                                    <h3 className="text-2xl font-black text-slate-900">6.4h</h3>
-                                    <p className="mt-2 text-[10px] font-bold text-slate-400">Target: 8.0h daily</p>
+                                    <h3 className="text-2xl font-black text-slate-900">{isOnline ? "Active" : "0.0h"}</h3>
+                                    <p className="mt-2 text-[10px] font-bold text-slate-400">{isOnline ? "Currently on duty" : "Go online to start earning"}</p>
                                 </div>
 
-                                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
+                                <div className="bg-slate-50 p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
                                     <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-800 flex items-center justify-center mb-4 border border-slate-200">
                                         <Activity size={20} />
                                     </div>
                                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-0.5">Completed Rides</p>
-                                    <h3 className="text-2xl font-black text-slate-900">{completedRides.length > 0 ? completedRides.length : 12}</h3>
-                                    <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-emerald-600">
-                                        <TrendingUp size={11} /> 94% Acceptance Rate
+                                    <h3 className="text-2xl font-black text-slate-900">{completedRides.length}</h3>
+                                    <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-slate-400">
+                                        <TrendingUp size={11} /> {completedRides.length > 0 ? `${completedRides.length} trip${completedRides.length > 1 ? 's' : ''} today` : "No completed trips yet"}
                                     </div>
                                 </div>
                             </div>

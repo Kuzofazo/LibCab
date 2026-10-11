@@ -47,7 +47,7 @@ export default function DriverHome() {
     const [incomingOffer, setIncomingOffer] = useState<IncomingRideOffer | null>(null);
     const [activeTrip, setActiveTrip] = useState<any>(null);
     const [settlementReceipt, setSettlementReceipt] = useState<any | null>(null);
-    const [stats, setStats] = useState({ earnings: 14.50, trips: 3, hours: 2.5 });
+    const [stats, setStats] = useState({ earnings: 0.00, trips: 0, hours: 0.0 });
     const [token, setToken] = useState<string | null>(null);
     const [testingPush, setTestingPush] = useState(false);
 
