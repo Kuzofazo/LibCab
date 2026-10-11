@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { 
     Search, Edit, Trash, Ban, 
     UserPlus, Download, CheckCircle, Loader2,
-    Car, User as UserIcon, Phone, Mail, CreditCard, ShieldCheck
+    Car, User as UserIcon, Phone, Mail, CreditCard, ShieldCheck, RefreshCw
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -44,6 +44,8 @@ export default function UsersPage() {
     const [filterRole, setFilterRole] = useState("ALL");
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
 
     // Modal States
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -90,22 +92,35 @@ export default function UsersPage() {
         }
     }, [router]);
 
-    async function fetchUsers() {
+    async function fetchUsers(showSuccessToast = false) {
         setLoading(true);
         try {
             const token = localStorage.getItem("token");
-            const res = await fetch("/api/users", {
+            const res = await fetch(`/api/users?_t=${Date.now()}`, {
+                cache: "no-store",
                 headers: {
-                    Authorization: `Bearer ${token}`
+                    Authorization: `Bearer ${token}`,
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache"
                 }
             });
-            if (!res.ok) throw new Error("Failed to fetch");
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || "Failed to fetch users");
+            }
             const data = await res.json();
-            setUsers(data);
-        } catch (error) {
+            if (Array.isArray(data)) {
+                setUsers(data);
+                if (showSuccessToast) {
+                    showToast(`Synchronized ${data.length} accounts directly from database`, "success");
+                }
+            }
+        } catch (error: any) {
             console.error("Failed to fetch users", error);
+            showToast(error?.message || "Failed to sync with database", "error");
         } finally {
             setLoading(false);
+            setIsSyncing(false);
         }
     }
 
@@ -143,6 +158,20 @@ export default function UsersPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (isSubmitting) return;
+
+        // Validation
+        if (!formData.email || !formData.email.trim()) {
+            showToast("Email address is required", "error");
+            return;
+        }
+
+        if (!isEditing && (!formData.password || formData.password.length < 6)) {
+            showToast("Password must be at least 6 characters", "error");
+            return;
+        }
+
+        setIsSubmitting(true);
         const token = localStorage.getItem("token");
         const url = isEditing ? `/api/users/${selectedUser?.id}` : "/api/users";
         const method = isEditing ? "PUT" : "POST";
@@ -157,18 +186,30 @@ export default function UsersPage() {
                 body: JSON.stringify(formData)
             });
 
+            const data = await res.json();
+
             if (!res.ok) {
-                const err = await res.json();
-                showToast(err.error || "Operation failed", "error");
+                showToast(data.error || "Operation failed", "error");
                 return;
             }
 
-            showToast(isEditing ? "User updated successfully!" : "User created successfully!", "success");
+            // Real-Time UI Synchronization: Update list immediately with database response
+            if (isEditing) {
+                setUsers(prev => prev.map(u => u.id === data.id ? { ...u, ...data } : u));
+                showToast(`User ${data.name || data.email} updated and saved in database!`, "success");
+            } else {
+                setUsers(prev => [data, ...prev.filter(u => u.id !== data.id)]);
+                showToast(`User ${data.name || data.email} created and saved in database!`, "success");
+            }
+
             setIsModalOpen(false);
-            fetchUsers();
-        } catch (error) {
-            console.error(error);
-            showToast("An unexpected error occurred", "error");
+            // Full refresh to verify backend consistency
+            await fetchUsers();
+        } catch (error: any) {
+            console.error("User save exception:", error);
+            showToast("Network error: Could not reach backend server", "error");
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -284,15 +325,29 @@ export default function UsersPage() {
                     <h2 className="text-3xl font-bold text-gray-900">User Management</h2>
                     <p className="text-gray-500 mt-1 font-medium">Control center for Riders, Drivers, and Admins.</p>
                 </div>
-                {isSuperAdmin && (
+                <div className="flex items-center gap-3">
                     <button
-                        onClick={handleOpenCreate}
-                        className="flex items-center gap-2 px-6 py-3 bg-[#042a22] text-white rounded-xl font-bold hover:bg-emerald-900 transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
+                        onClick={() => {
+                            setIsSyncing(true);
+                            fetchUsers(true);
+                        }}
+                        disabled={isSyncing || loading}
+                        className="flex items-center gap-2 px-4 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                        title="Force Refresh from Database"
                     >
-                        <UserPlus size={20} />
-                        Create New User
+                        <RefreshCw size={16} className={isSyncing ? "animate-spin text-emerald-600" : "text-gray-500"} />
+                        <span>{isSyncing ? "Syncing..." : "Sync Database"}</span>
                     </button>
-                )}
+                    {isSuperAdmin && (
+                        <button
+                            onClick={handleOpenCreate}
+                            className="flex items-center gap-2 px-6 py-3 bg-[#042a22] text-white rounded-xl font-bold hover:bg-emerald-900 transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
+                        >
+                            <UserPlus size={20} />
+                            Create New User
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Stats & Tabs */}
@@ -699,10 +754,18 @@ export default function UsersPage() {
                                 </button>
                                 <button
                                     type="submit"
+                                    disabled={isSubmitting}
                                     title="Confirm Action"
-                                    className="flex-1 py-4 bg-[#042a22] text-white rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-900 transition-all shadow-lg shadow-emerald-500/30 active:scale-95"
+                                    className="flex-1 py-4 bg-[#042a22] text-white rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-900 transition-all shadow-lg shadow-emerald-500/30 active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2"
                                 >
-                                    {isEditing ? "Save Changes" : "Confirm Onboarding"}
+                                    {isSubmitting ? (
+                                        <>
+                                            <Loader2 size={18} className="animate-spin" />
+                                            {isEditing ? "Saving Changes..." : "Creating Account..."}
+                                        </>
+                                    ) : (
+                                        isEditing ? "Save Changes" : "Confirm Onboarding"
+                                    )}
                                 </button>
                             </div>
                         </form>

@@ -2,20 +2,24 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { verifyJWT } from "@/lib/auth";
-import { memoryCache } from "@/lib/cache";
 
-const USERS_CACHE_KEY = "admin_users_list";
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-export async function GET() {
+const NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+};
+
+export async function GET(req: Request) {
     try {
-        const payload = await verifyJWT();
+        const payload = await verifyJWT(req);
         if (!payload || (payload.role !== "SUPER_ADMIN" && payload.role !== "ADMIN")) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: NO_CACHE_HEADERS });
         }
 
-        const cached = memoryCache.get<object[]>(USERS_CACHE_KEY);
-        if (cached) return NextResponse.json(cached);
-
+        // Always query database directly for 100% real-time synchronization
         const users = await prisma.user.findMany({
             orderBy: { createdAt: 'desc' },
             select: {
@@ -44,20 +48,19 @@ export async function GET() {
             }
         });
 
-        memoryCache.set(USERS_CACHE_KEY, users, 30);
-        return NextResponse.json(users);
+        return NextResponse.json(users, { headers: NO_CACHE_HEADERS });
     } catch (error) {
         console.error("Fetch Users Error:", error);
-        return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to fetch users from database" }, { status: 500, headers: NO_CACHE_HEADERS });
     }
 }
 
 export async function POST(req: Request) {
     try {
         // 1. Permission Check
-        const payload = await verifyJWT();
-        if (!payload || payload.role !== "SUPER_ADMIN") {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const payload = await verifyJWT(req);
+        if (!payload || (payload.role !== "SUPER_ADMIN" && payload.role !== "ADMIN")) {
+            return NextResponse.json({ error: "Unauthorized: Administrator permissions required." }, { status: 401, headers: NO_CACHE_HEADERS });
         }
 
         const body = await req.json();
@@ -77,42 +80,51 @@ export async function POST(req: Request) {
             isActive = true
         } = body;
 
-        if (!email || !password) {
-            return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+        if (!email || typeof email !== "string" || !password || typeof password !== "string") {
+            return NextResponse.json({ error: "Email address and password are required." }, { status: 400, headers: NO_CACHE_HEADERS });
         }
 
-        const existingEmail = await prisma.user.findUnique({ where: { email } });
+        const cleanEmail = email.trim().toLowerCase();
+        const cleanPhone = phone && typeof phone === "string" && phone.trim() !== "" ? phone.trim() : null;
+        const cleanName = name && typeof name === "string" ? name.trim() : null;
+
+        // Duplicate checks
+        const existingEmail = await prisma.user.findUnique({ where: { email: cleanEmail } });
         if (existingEmail) {
-            return NextResponse.json({ error: "Email already exists" }, { status: 400 });
+            return NextResponse.json({ 
+                error: `Account with email "${cleanEmail}" already exists in database.` 
+            }, { status: 400, headers: NO_CACHE_HEADERS });
         }
 
-        if (phone) {
-            const existingPhone = await prisma.user.findFirst({ where: { phone } });
+        if (cleanPhone) {
+            const existingPhone = await prisma.user.findFirst({ where: { phone: cleanPhone } });
             if (existingPhone) {
-                return NextResponse.json({ error: "Phone number already in use" }, { status: 400 });
+                return NextResponse.json({ 
+                    error: `Phone number "${cleanPhone}" is already in use by another account.` 
+                }, { status: 400, headers: NO_CACHE_HEADERS });
             }
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password.trim(), 10);
 
-        // 2. Create User
+        // 2. Create User and Driver Profile synchronously in DB
         const newUser = await prisma.user.create({
             data: {
-                name,
-                email,
+                name: cleanName,
+                email: cleanEmail,
                 password: hashedPassword,
-                phone,
+                phone: cleanPhone,
                 role: role || "RIDER",
-                preferredPaymentMethod,
-                isActive,
+                preferredPaymentMethod: preferredPaymentMethod || "MOBILE_MONEY",
+                isActive: isActive ?? true,
                 forcePasswordChange: true,
                 driverProfile: role === "DRIVER" ? {
                     create: {
-                        vehicleType,
-                        vehicleModel,
-                        vehicleColor,
-                        licensePlate,
-                        driverLicense,
+                        vehicleType: vehicleType ? String(vehicleType).trim() : null,
+                        vehicleModel: vehicleModel ? String(vehicleModel).trim() : null,
+                        vehicleColor: vehicleColor ? String(vehicleColor).trim() : null,
+                        licensePlate: licensePlate ? String(licensePlate).trim() : null,
+                        driverLicense: driverLicense ? String(driverLicense).trim() : null,
                     }
                 } : undefined
             },
@@ -125,7 +137,20 @@ export async function POST(req: Request) {
                 isActive: true,
                 preferredPaymentMethod: true,
                 createdAt: true,
-                driverProfile: true
+                updatedAt: true,
+                driverProfile: {
+                    select: {
+                        id: true,
+                        userId: true,
+                        vehicleType: true,
+                        vehicleModel: true,
+                        vehicleColor: true,
+                        licensePlate: true,
+                        driverLicense: true,
+                        isOnline: true,
+                        rating: true
+                    }
+                }
             }
         });
 
@@ -135,7 +160,7 @@ export async function POST(req: Request) {
                 dispatcherId: payload.userId,
                 action: "ADMIN_CREATE_USER",
                 details: JSON.stringify({
-                    message: `Super Admin created a new ${newUser.role}`,
+                    message: `Administrator created user ${newUser.email} (${newUser.role})`,
                     targetUserId: newUser.id,
                     targetRole: newUser.role,
                     targetEmail: newUser.email,
@@ -146,10 +171,11 @@ export async function POST(req: Request) {
             }
         });
 
-        memoryCache.invalidate(USERS_CACHE_KEY);
-        return NextResponse.json(newUser);
-    } catch (error) {
-        console.error("User Create Error", error);
-        return NextResponse.json({ error: "Failed to create user" }, { status: 500 });
+        return NextResponse.json(newUser, { status: 201, headers: NO_CACHE_HEADERS });
+    } catch (error: any) {
+        console.error("User Create Error:", error);
+        return NextResponse.json({ 
+            error: error?.message || "Failed to create account in database" 
+        }, { status: 500, headers: NO_CACHE_HEADERS });
     }
 }

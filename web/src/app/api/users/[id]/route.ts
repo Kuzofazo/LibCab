@@ -1,18 +1,24 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyJWT } from "@/lib/auth";
-import { memoryCache } from "@/lib/cache";
 import bcrypt from "bcryptjs";
 
-const USERS_CACHE_KEY = "admin_users_list";
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+};
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { id } = await params;
-        const payload = await verifyJWT();
+        const payload = await verifyJWT(req);
 
         if (!payload || (payload.role !== "SUPER_ADMIN" && payload.role !== "ADMIN")) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: NO_CACHE_HEADERS });
         }
 
         const user = await prisma.user.findUnique({
@@ -31,24 +37,24 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         });
 
         if (!user) {
-            return NextResponse.json({ error: "User not found" }, { status: 404 });
+            return NextResponse.json({ error: "User not found" }, { status: 404, headers: NO_CACHE_HEADERS });
         }
 
-        return NextResponse.json(user);
+        return NextResponse.json(user, { headers: NO_CACHE_HEADERS });
     } catch (error) {
         console.error("User Fetch Error", error);
-        return NextResponse.json({ error: "Failed to fetch user" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to fetch user" }, { status: 500, headers: NO_CACHE_HEADERS });
     }
 }
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { id } = await params;
-        const payload = await verifyJWT();
+        const payload = await verifyJWT(req);
 
         // ONLY Super Admins can update users
         if (!payload || payload.role !== "SUPER_ADMIN") {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: NO_CACHE_HEADERS });
         }
 
         const body = await req.json();
@@ -69,28 +75,28 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
         // Prepare data for update (only include defined fields)
         const updateData: Record<string, unknown> = {};
-        if (name !== undefined) updateData.name = name;
-        if (phone !== undefined) updateData.phone = phone;
+        if (name !== undefined) updateData.name = typeof name === "string" ? name.trim() : name;
+        if (phone !== undefined) updateData.phone = typeof phone === "string" ? phone.trim() : phone;
         if (role !== undefined) updateData.role = role;
         if (isActive !== undefined) updateData.isActive = isActive;
         if (preferredPaymentMethod !== undefined) updateData.preferredPaymentMethod = preferredPaymentMethod;
 
-        if (password && password.trim() !== "") {
-            updateData.password = await bcrypt.hash(password, 10);
+        if (password && typeof password === "string" && password.trim() !== "") {
+            updateData.password = await bcrypt.hash(password.trim(), 10);
             updateData.forcePasswordChange = true;
         }
 
         // Verify user exists and is not a SUPER_ADMIN being demoted without care
         const targetUser = await prisma.user.findUnique({ where: { id } });
         if (!targetUser) {
-            return NextResponse.json({ error: "User not found" }, { status: 404 });
+            return NextResponse.json({ error: "User not found" }, { status: 404, headers: NO_CACHE_HEADERS });
         }
 
         // Prevent removing Super Admin role from last super admin
         if (targetUser.role === "SUPER_ADMIN" && role && role !== "SUPER_ADMIN") {
             const superAdminCount = await prisma.user.count({ where: { role: "SUPER_ADMIN" } });
             if (superAdminCount <= 1) {
-                return NextResponse.json({ error: "Cannot remove the only Super Admin role" }, { status: 400 });
+                return NextResponse.json({ error: "Cannot remove the only Super Admin role" }, { status: 400, headers: NO_CACHE_HEADERS });
             }
         }
 
@@ -104,18 +110,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
                 driverProfile: role === "DRIVER" ? {
                     upsert: {
                         create: {
-                            vehicleType,
-                            vehicleModel,
-                            vehicleColor,
-                            licensePlate,
-                            driverLicense,
+                            vehicleType: vehicleType ? String(vehicleType).trim() : null,
+                            vehicleModel: vehicleModel ? String(vehicleModel).trim() : null,
+                            vehicleColor: vehicleColor ? String(vehicleColor).trim() : null,
+                            licensePlate: licensePlate ? String(licensePlate).trim() : null,
+                            driverLicense: driverLicense ? String(driverLicense).trim() : null,
                         },
                         update: {
-                            vehicleType,
-                            vehicleModel,
-                            vehicleColor,
-                            licensePlate,
-                            driverLicense,
+                            vehicleType: vehicleType !== undefined ? (vehicleType ? String(vehicleType).trim() : null) : undefined,
+                            vehicleModel: vehicleModel !== undefined ? (vehicleModel ? String(vehicleModel).trim() : null) : undefined,
+                            vehicleColor: vehicleColor !== undefined ? (vehicleColor ? String(vehicleColor).trim() : null) : undefined,
+                            licensePlate: licensePlate !== undefined ? (licensePlate ? String(licensePlate).trim() : null) : undefined,
+                            driverLicense: driverLicense !== undefined ? (driverLicense ? String(driverLicense).trim() : null) : undefined,
                         }
                     }
                 } : (role === "RIDER" && existingProfile ? { delete: true } : undefined)
@@ -129,7 +135,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
                 isActive: true,
                 preferredPaymentMethod: true,
                 createdAt: true,
-                driverProfile: true
+                updatedAt: true,
+                driverProfile: {
+                    select: {
+                        id: true,
+                        userId: true,
+                        vehicleType: true,
+                        vehicleModel: true,
+                        vehicleColor: true,
+                        licensePlate: true,
+                        driverLicense: true,
+                        isOnline: true,
+                        rating: true
+                    }
+                }
             }
         });
 
@@ -148,32 +167,31 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             }
         });
 
-        memoryCache.invalidate(USERS_CACHE_KEY);
-        return NextResponse.json(updatedUser);
+        return NextResponse.json(updatedUser, { headers: NO_CACHE_HEADERS });
     } catch (error) {
         console.error("User Update Error", error);
-        return NextResponse.json({ error: "Failed to update user" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to update user in database" }, { status: 500, headers: NO_CACHE_HEADERS });
     }
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { id } = await params;
-        const payload = await verifyJWT();
+        const payload = await verifyJWT(req);
 
         // ONLY Super Admins can delete users
         if (!payload || payload.role !== "SUPER_ADMIN") {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: NO_CACHE_HEADERS });
         }
 
         const userToDelete = await prisma.user.findUnique({ where: { id } });
         if (!userToDelete) {
-            return NextResponse.json({ error: "User not found" }, { status: 404 });
+            return NextResponse.json({ error: "User not found in database" }, { status: 404, headers: NO_CACHE_HEADERS });
         }
 
         // Prevent deleting a Super Admin
         if (userToDelete.role === "SUPER_ADMIN") {
-            return NextResponse.json({ error: "Cannot delete a Super Admin account" }, { status: 403 });
+            return NextResponse.json({ error: "Cannot delete a Super Admin account" }, { status: 403, headers: NO_CACHE_HEADERS });
         }
 
         // Run sequential deletions (avoid long transactions timing out on Supabase)
@@ -223,12 +241,12 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
             }
         });
 
-        // Invalidate cache so next fetch is fresh
-        memoryCache.invalidate(USERS_CACHE_KEY);
-
-        return NextResponse.json({ success: true, message: `User ${userToDelete.email} successfully deleted` });
+        return NextResponse.json({ 
+            success: true, 
+            message: `User ${userToDelete.email} successfully deleted from database` 
+        }, { headers: NO_CACHE_HEADERS });
     } catch (error) {
         console.error("User Deletion Error", error);
-        return NextResponse.json({ error: "Failed to delete user" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to delete user from database" }, { status: 500, headers: NO_CACHE_HEADERS });
     }
 }
