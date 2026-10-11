@@ -29,6 +29,12 @@ interface User {
     driverProfile?: DriverProfile | null;
 }
 
+interface Toast {
+    id: number;
+    message: string;
+    type: "success" | "error";
+}
+
 export default function UsersPage() {
     const router = useRouter();
     const [users, setUsers] = useState<User[]>([]);
@@ -36,6 +42,8 @@ export default function UsersPage() {
     const [isSuperAdmin, setIsSuperAdmin] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [filterRole, setFilterRole] = useState("ALL");
+    const [toasts, setToasts] = useState<Toast[]>([]);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // Modal States
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -60,6 +68,12 @@ export default function UsersPage() {
         licensePlate: "",
         driverLicense: ""
     });
+
+    const showToast = (message: string, type: "success" | "error" = "success") => {
+        const id = Date.now();
+        setToasts(prev => [...prev, { id, message, type }]);
+        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+    };
 
     useEffect(() => {
         const userStr = localStorage.getItem("user");
@@ -145,27 +159,21 @@ export default function UsersPage() {
 
             if (!res.ok) {
                 const err = await res.json();
-                alert(err.error || "Failed");
+                showToast(err.error || "Operation failed", "error");
                 return;
             }
 
-            alert(isEditing ? "User updated successfully!" : "User created successfully!");
+            showToast(isEditing ? "User updated successfully!" : "User created successfully!", "success");
             setIsModalOpen(false);
             fetchUsers();
         } catch (error) {
             console.error(error);
-            alert("An error occurred");
+            showToast("An unexpected error occurred", "error");
         }
     };
 
     const handleToggleStatus = async (user: User) => {
         if (!isSuperAdmin) return;
-        const confirmMsg = user.isActive 
-            ? `Are you sure you want to deactivate ${user.name || user.email}?`
-            : `Are you sure you want to activate ${user.name || user.email}?`;
-        
-        if (!confirm(confirmMsg)) return;
-
         try {
             const token = localStorage.getItem("token");
             const res = await fetch(`/api/users/${user.id}`, {
@@ -178,12 +186,16 @@ export default function UsersPage() {
             });
 
             if (res.ok) {
-                fetchUsers();
+                // Optimistic update
+                setUsers(prev => prev.map(u => u.id === user.id ? { ...u, isActive: !u.isActive } : u));
+                showToast(`${user.name || user.email} has been ${user.isActive ? "deactivated" : "activated"}.`, "success");
             } else {
-                alert("Failed to toggle status");
+                const err = await res.json();
+                showToast(err.error || "Failed to toggle status", "error");
             }
         } catch (error) {
             console.error(error);
+            showToast("An unexpected error occurred", "error");
         }
     };
 
@@ -195,10 +207,14 @@ export default function UsersPage() {
     };
 
     const confirmDelete = async () => {
-        if (!selectedUser) return;
+        if (!selectedUser || isDeleting) return;
+        setIsDeleting(true);
         try {
-            console.log(`Attempting to delete user: ${selectedUser.id}`);
             const token = localStorage.getItem("token");
+            // Optimistic removal from UI immediately
+            setUsers(prev => prev.filter(u => u.id !== selectedUser.id));
+            setIsDeleteModalOpen(false);
+
             const res = await fetch(`/api/users/${selectedUser.id}`, {
                 method: "DELETE",
                 headers: { 
@@ -207,20 +223,21 @@ export default function UsersPage() {
                 }
             });
 
-            console.log("Delete response status:", res.status);
             if (res.ok) {
-                // We don't use window.alert here as it might be blocked, let's just close modal and refresh
-                setIsDeleteModalOpen(false);
+                showToast(`${selectedUser.name || selectedUser.email} has been deleted.`, "success");
                 setSelectedUser(null);
-                fetchUsers();
             } else {
                 const data = await res.json();
-                console.error("Delete error data:", data);
-                window.alert(data.error || "Failed to delete user");
+                showToast(data.error || "Failed to delete user", "error");
+                // Revert optimistic update on failure
+                fetchUsers();
             }
         } catch (error) {
             console.error("Delete request exception:", error);
-            window.alert("An error occurred while deleting the user.");
+            showToast("An error occurred while deleting the user.", "error");
+            fetchUsers();
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -243,6 +260,24 @@ export default function UsersPage() {
 
     return (
         <div className="space-y-6">
+            {/* Toast Notifications */}
+            <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-2 pointer-events-none">
+                {toasts.map(toast => (
+                    <div
+                        key={toast.id}
+                        className={`pointer-events-auto flex items-center gap-3 px-5 py-3 rounded-xl shadow-xl text-sm font-semibold text-white
+                            transition-all duration-300 animate-fade-in-up
+                            ${toast.type === "success" ? "bg-emerald-600" : "bg-red-600"}`}
+                        style={{ animation: "slideInUp 0.3s ease" }}
+                    >
+                        {toast.type === "success"
+                            ? <CheckCircle size={18} />
+                            : <Ban size={18} />}
+                        {toast.message}
+                    </div>
+                ))}
+            </div>
+
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                 <div>
@@ -704,9 +739,10 @@ export default function UsersPage() {
                             <button
                                 type="button"
                                 onClick={confirmDelete}
-                                className="flex-1 py-3 bg-[#042a22] text-white rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-900 transition-all shadow-lg shadow-emerald-500/30 active:scale-95"
+                                disabled={isDeleting}
+                                className="flex-1 py-3 bg-[#042a22] text-white rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-900 transition-all shadow-lg shadow-emerald-500/30 active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2"
                             >
-                                Yes, Delete
+                                {isDeleting ? <><Loader2 size={16} className="animate-spin" /> Deleting...</> : "Yes, Delete"}
                             </button>
                         </div>
                     </div>
