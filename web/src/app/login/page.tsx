@@ -34,7 +34,13 @@ export default function LoginPage() {
                 localStorage.setItem("token", data.token);
 
                 if (data.user.role === "ADMIN" || data.user.role === "SUPER_ADMIN") {
-                    router.push("/admin");
+                    if (data.user.forcePasswordChange) {
+                        router.push("/admin/change-password");
+                    } else {
+                        router.push("/admin");
+                    }
+                } else if (data.user.role === "DRIVER") {
+                    router.push("/driver");
                 } else {
                     router.push("/");
                 }

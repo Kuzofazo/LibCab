@@ -93,8 +93,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     }, [user, segments, loading]);
 
+    const updateUser = async (updatedUser: any, newToken?: string) => {
+        setUser(updatedUser);
+        try {
+            await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+            if (newToken) {
+                await AsyncStorage.setItem('token', newToken);
+            }
+        } catch (e) {
+            console.error("Failed to update stored user", e);
+        }
+    };
+
     return (
-        <AuthContext.Provider value={{ user, signIn, signUp, signOut, loading }}>
+        <AuthContext.Provider value={{ user, signIn, signUp, signOut, updateUser, loading }}>
             {children}
         </AuthContext.Provider>
     );

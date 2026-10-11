@@ -7,11 +7,24 @@ export interface JWTPayload {
     userId: string;
     email: string;
     role: string;
+    forcePasswordChange?: boolean;
 }
 
-export async function verifyJWT(): Promise<JWTPayload | null> {
-    const headersList = await headers();
-    const authHeader = headersList.get("authorization");
+export async function verifyJWT(req?: Request): Promise<JWTPayload | null> {
+    let authHeader: string | null = null;
+    
+    if (req) {
+        try {
+            authHeader = req.headers.get("authorization");
+        } catch {}
+    }
+
+    if (!authHeader) {
+        try {
+            const headersList = await headers();
+            authHeader = headersList.get("authorization");
+        } catch {}
+    }
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
         return null;

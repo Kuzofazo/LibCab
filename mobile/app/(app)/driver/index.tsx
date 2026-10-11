@@ -8,6 +8,9 @@ import {
     TouchableOpacity,
     Platform,
     Animated,
+    Modal,
+    TextInput,
+    ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -17,6 +20,7 @@ import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '../../../utils/apiClient';
 import { NotificationService } from '../../../utils/notificationService';
+import { useAuth } from '../../../context/AuthContext';
 
 export interface IncomingRideOffer {
     rideId: string;
@@ -36,6 +40,7 @@ export interface IncomingRideOffer {
 }
 
 export default function DriverHome() {
+    const { user, updateUser } = useAuth();
     const [isOnline, setIsOnline] = useState(false);
     const [pushGranted, setPushGranted] = useState<boolean | null>(null);
     const [locationGranted, setLocationGranted] = useState<boolean | null>(null);
@@ -45,6 +50,72 @@ export default function DriverHome() {
     const [stats, setStats] = useState({ earnings: 14.50, trips: 3, hours: 2.5 });
     const [token, setToken] = useState<string | null>(null);
     const [testingPush, setTestingPush] = useState(false);
+
+    // Password Change State
+    const [isPasswordModalVisible, setIsPasswordModalVisible] = useState(Boolean(user?.forcePasswordChange));
+    const [currentPass, setCurrentPass] = useState('');
+    const [newPass, setNewPass] = useState('');
+    const [confirmPass, setConfirmPass] = useState('');
+    const [showCurrentPass, setShowCurrentPass] = useState(false);
+    const [showNewPass, setShowNewPass] = useState(false);
+    const [showConfirmPass, setShowConfirmPass] = useState(false);
+    const [changingPassword, setChangingPassword] = useState(false);
+
+    const handleSavePassword = async () => {
+        if (!currentPass) {
+            Alert.alert("Required", "Please enter your current or temporary password.");
+            return;
+        }
+        if (newPass.length < 6) {
+            Alert.alert("Weak Password", "New password must be at least 6 characters long.");
+            return;
+        }
+        if (newPass !== confirmPass) {
+            Alert.alert("Mismatch", "New password and confirmation do not match.");
+            return;
+        }
+        if (newPass === currentPass) {
+            Alert.alert("Invalid", "New password cannot be the same as your current password.");
+            return;
+        }
+
+        setChangingPassword(true);
+        try {
+            const res = await apiClient('/api/auth/change-password', {
+                method: 'POST',
+                body: JSON.stringify({
+                    currentPassword: currentPass,
+                    newPassword: newPass,
+                    confirmPassword: confirmPass,
+                }),
+                skipOfflineQueue: true,
+            });
+
+            const data = await res.json();
+            if (res.ok && data.success) {
+                if (updateUser) {
+                    await updateUser(data.user, data.token);
+                }
+                setCurrentPass('');
+                setNewPass('');
+                setConfirmPass('');
+                setIsPasswordModalVisible(false);
+                Alert.alert(
+                    "Password Changed",
+                    "Your password has been changed successfully. You can now use your new password for all future logins."
+                );
+            } else {
+                Alert.alert(
+                    "Password Update Failed",
+                    data.error || "Failed to update password. Please check your current password."
+                );
+            }
+        } catch {
+            Alert.alert("Connection Error", "Could not reach server to change password. Please check your connection.");
+        } finally {
+            setChangingPassword(false);
+        }
+    };
 
     const progressAnim = useRef(new Animated.Value(1)).current;
     const countdownTimerRef = useRef<any>(null);
@@ -487,21 +558,44 @@ export default function DriverHome() {
             <View style={styles.header}>
                 <View>
                     <Text style={styles.greeting}>AfriCab Driver Partner</Text>
-                    <Text style={styles.name}>Welcome Back</Text>
+                    <Text style={styles.name}>{user?.name ? user.name.split(' ')[0] : 'Welcome'}</Text>
                 </View>
-                <View style={[styles.statusContainer, activeTrip && { opacity: 0.5 }]}>
-                    <Text style={[styles.statusText, isOnline && styles.onlineText]}>
-                        {isOnline ? 'ONLINE' : 'OFFLINE'}
-                    </Text>
-                    <Switch
-                        value={isOnline}
-                        onValueChange={handleToggleOnline}
-                        disabled={!!activeTrip}
-                        trackColor={{ false: '#e2e8f0', true: '#059669' }}
-                        thumbColor={'#ffffff'}
-                    />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <TouchableOpacity
+                        onPress={() => setIsPasswordModalVisible(true)}
+                        style={styles.keyButton}
+                        accessibilityLabel="Change Password"
+                    >
+                        <Ionicons name="key-outline" size={18} color="#0f172a" />
+                    </TouchableOpacity>
+                    <View style={[styles.statusContainer, activeTrip && { opacity: 0.5 }]}>
+                        <Text style={[styles.statusText, isOnline && styles.onlineText]}>
+                            {isOnline ? 'ONLINE' : 'OFFLINE'}
+                        </Text>
+                        <Switch
+                            value={isOnline}
+                            onValueChange={handleToggleOnline}
+                            disabled={!!activeTrip}
+                            trackColor={{ false: '#e2e8f0', true: '#059669' }}
+                            thumbColor={'#ffffff'}
+                        />
+                    </View>
                 </View>
             </View>
+
+            {/* Temporary Password Alert Banner */}
+            {user?.forcePasswordChange && (
+                <TouchableOpacity
+                    style={styles.forcePasswordBanner}
+                    onPress={() => setIsPasswordModalVisible(true)}
+                >
+                    <Ionicons name="warning-outline" size={18} color="#92400e" />
+                    <Text style={styles.forcePasswordBannerText}>
+                        Initial password active. Tap to set your personal password.
+                    </Text>
+                    <Ionicons name="chevron-forward" size={14} color="#92400e" />
+                </TouchableOpacity>
+            )}
 
             {/* Notification Permission Banner if not enabled */}
             {pushGranted === false && (
@@ -690,8 +784,162 @@ export default function DriverHome() {
                             Switch the toggle at top right to Go Online and start receiving passenger ride notifications.
                         </Text>
                     </View>
+
+                    {/* Change Password Tile */}
+                    <TouchableOpacity
+                        style={styles.changePasswordTile}
+                        onPress={() => setIsPasswordModalVisible(true)}
+                    >
+                        <View style={styles.changePasswordTileLeft}>
+                            <View style={styles.changePasswordIconBox}>
+                                <Ionicons name="lock-closed" size={18} color="#059669" />
+                            </View>
+                            <View>
+                                <Text style={styles.changePasswordTitle}>Change Account Password</Text>
+                                <Text style={styles.changePasswordSubtitle}>Update initial or current password</Text>
+                            </View>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+                    </TouchableOpacity>
                 </ScrollView>
             )}
+
+            {/* Change Password Modal */}
+            <Modal
+                visible={isPasswordModalVisible}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={() => {
+                    if (!user?.forcePasswordChange) setIsPasswordModalVisible(false);
+                }}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalCard}>
+                        <View style={styles.modalHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                <View style={styles.modalIconBox}>
+                                    <Ionicons name="key" size={20} color="#059669" />
+                                </View>
+                                <View>
+                                    <Text style={styles.modalTitle}>Change Password</Text>
+                                    <Text style={styles.modalSubtitle}>Driver Account Security</Text>
+                                </View>
+                            </View>
+                            {!user?.forcePasswordChange && (
+                                <TouchableOpacity onPress={() => setIsPasswordModalVisible(false)}>
+                                    <Ionicons name="close" size={24} color="#64748b" />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+
+                        <ScrollView contentContainerStyle={styles.modalBody}>
+                            {user?.forcePasswordChange && (
+                                <View style={styles.modalAlertNotice}>
+                                    <Ionicons name="information-circle" size={18} color="#92400e" />
+                                    <Text style={styles.modalAlertText}>
+                                        An initial password was assigned by the System Administrator. Please verify your current password and create a new personal password.
+                                    </Text>
+                                </View>
+                            )}
+
+                            {/* Current Password */}
+                            <Text style={styles.inputLabel}>CURRENT / INITIAL PASSWORD</Text>
+                            <View style={styles.passwordInputContainer}>
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Enter current password"
+                                    placeholderTextColor="#94a3b8"
+                                    secureTextEntry={!showCurrentPass}
+                                    value={currentPass}
+                                    onChangeText={setCurrentPass}
+                                    autoCapitalize="none"
+                                />
+                                <TouchableOpacity
+                                    onPress={() => setShowCurrentPass(!showCurrentPass)}
+                                    style={styles.eyeBtn}
+                                >
+                                    <Ionicons
+                                        name={showCurrentPass ? "eye-off-outline" : "eye-outline"}
+                                        size={20}
+                                        color="#64748b"
+                                    />
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* New Password */}
+                            <Text style={styles.inputLabel}>NEW PASSWORD (MIN. 6 CHARACTERS)</Text>
+                            <View style={styles.passwordInputContainer}>
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Enter new strong password"
+                                    placeholderTextColor="#94a3b8"
+                                    secureTextEntry={!showNewPass}
+                                    value={newPass}
+                                    onChangeText={setNewPass}
+                                    autoCapitalize="none"
+                                />
+                                <TouchableOpacity
+                                    onPress={() => setShowNewPass(!showNewPass)}
+                                    style={styles.eyeBtn}
+                                >
+                                    <Ionicons
+                                        name={showNewPass ? "eye-off-outline" : "eye-outline"}
+                                        size={20}
+                                        color="#64748b"
+                                    />
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Confirm New Password */}
+                            <Text style={styles.inputLabel}>CONFIRM NEW PASSWORD</Text>
+                            <View style={styles.passwordInputContainer}>
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Re-enter new password"
+                                    placeholderTextColor="#94a3b8"
+                                    secureTextEntry={!showConfirmPass}
+                                    value={confirmPass}
+                                    onChangeText={setConfirmPass}
+                                    autoCapitalize="none"
+                                />
+                                <TouchableOpacity
+                                    onPress={() => setShowConfirmPass(!showConfirmPass)}
+                                    style={styles.eyeBtn}
+                                >
+                                    <Ionicons
+                                        name={showConfirmPass ? "eye-off-outline" : "eye-outline"}
+                                        size={20}
+                                        color="#64748b"
+                                    />
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={styles.modalBtnRow}>
+                                {!user?.forcePasswordChange && (
+                                    <TouchableOpacity
+                                        style={styles.modalCancelBtn}
+                                        onPress={() => setIsPasswordModalVisible(false)}
+                                        disabled={changingPassword}
+                                    >
+                                        <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                )}
+                                <TouchableOpacity
+                                    style={[styles.modalSaveBtn, changingPassword && { opacity: 0.7 }]}
+                                    onPress={handleSavePassword}
+                                    disabled={changingPassword}
+                                >
+                                    {changingPassword ? (
+                                        <ActivityIndicator color="#ffffff" />
+                                    ) : (
+                                        <Text style={styles.modalSaveBtnText}>Update Password</Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -941,4 +1189,197 @@ const styles = StyleSheet.create({
     footer: { padding: 20, borderTopWidth: 1, borderTopColor: '#e2e8f0', backgroundColor: '#ffffff' },
     doneBtn: { backgroundColor: '#0f172a', height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
     doneBtnText: { color: '#ffffff', fontSize: 15, fontWeight: '900', textTransform: 'uppercase' },
+
+    // Driver Password Styles
+    keyButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    forcePasswordBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: '#fef3c7',
+        borderBottomWidth: 1,
+        borderBottomColor: '#fde68a',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+    },
+    forcePasswordBannerText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#92400e',
+        flex: 1,
+    },
+    changePasswordTile: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#f8fafc',
+        padding: 16,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        marginTop: 14,
+    },
+    changePasswordTileLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        flex: 1,
+    },
+    changePasswordIconBox: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        backgroundColor: '#ecfdf5',
+        borderWidth: 1,
+        borderColor: '#d1fae5',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    changePasswordTitle: {
+        fontSize: 14,
+        fontWeight: '900',
+        color: '#0f172a',
+    },
+    changePasswordSubtitle: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#64748b',
+        marginTop: 1,
+    },
+
+    // Modal Styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(15, 23, 42, 0.7)',
+        justifyContent: 'center',
+        padding: 20,
+    },
+    modalCard: {
+        backgroundColor: '#ffffff',
+        borderRadius: 28,
+        overflow: 'hidden',
+        maxHeight: '90%',
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 20,
+        backgroundColor: '#0f172a',
+    },
+    modalIconBox: {
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: 'rgba(5, 150, 105, 0.2)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalTitle: {
+        fontSize: 16,
+        fontWeight: '900',
+        color: '#ffffff',
+    },
+    modalSubtitle: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#94a3b8',
+    },
+    modalBody: {
+        padding: 20,
+    },
+    modalAlertNotice: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+        backgroundColor: '#fef3c7',
+        borderWidth: 1,
+        borderColor: '#fde68a',
+        padding: 12,
+        borderRadius: 14,
+        marginBottom: 16,
+    },
+    modalAlertText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#92400e',
+        flex: 1,
+        lineHeight: 16,
+    },
+    inputLabel: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#475569',
+        marginBottom: 6,
+        textTransform: 'uppercase',
+    },
+    passwordInputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 14,
+        marginBottom: 14,
+        paddingHorizontal: 12,
+    },
+    modalInput: {
+        flex: 1,
+        height: 48,
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#0f172a',
+    },
+    eyeBtn: {
+        padding: 6,
+    },
+    modalBtnRow: {
+        flexDirection: 'row',
+        gap: 10,
+        marginTop: 10,
+    },
+    modalCancelBtn: {
+        flex: 1,
+        height: 48,
+        borderRadius: 14,
+        backgroundColor: '#f1f5f9',
+        borderWidth: 1,
+        borderColor: '#cbd5e1',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalCancelBtnText: {
+        fontSize: 13,
+        fontWeight: '800',
+        color: '#475569',
+        textTransform: 'uppercase',
+    },
+    modalSaveBtn: {
+        flex: 2,
+        height: 48,
+        borderRadius: 14,
+        backgroundColor: '#059669',
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#059669',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+        elevation: 3,
+    },
+    modalSaveBtnText: {
+        fontSize: 13,
+        fontWeight: '900',
+        color: '#ffffff',
+        textTransform: 'uppercase',
+    },
 });

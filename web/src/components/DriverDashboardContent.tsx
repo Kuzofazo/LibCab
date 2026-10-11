@@ -24,7 +24,12 @@ import {
     WifiOff,
     Bell,
     Volume2,
-    AlertTriangle
+    AlertTriangle,
+    KeyRound,
+    Lock,
+    Eye,
+    EyeOff,
+    Loader2
 } from "lucide-react";
 import { formatDual } from "@/utils/currency";
 import type { MapMarker } from "@/components/MapComponent";
@@ -63,6 +68,87 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
     const incomingOfferRef = useRef<any>(null);
     incomingOfferRef.current = incomingOffer;
+
+    // Password Management State
+    const [currentUser, setCurrentUser] = useState(user);
+    const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(Boolean(user?.forcePasswordChange));
+    const [currentPass, setCurrentPass] = useState("");
+    const [newPass, setNewPass] = useState("");
+    const [confirmPass, setConfirmPass] = useState("");
+    const [showCurrentPass, setShowCurrentPass] = useState(false);
+    const [showNewPass, setShowNewPass] = useState(false);
+    const [showConfirmPass, setShowConfirmPass] = useState(false);
+    const [passSubmitting, setPassSubmitting] = useState(false);
+    const [passError, setPassError] = useState("");
+    const [passSuccess, setPassSuccess] = useState("");
+
+    const handleChangePassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setPassError("");
+        setPassSuccess("");
+
+        if (!currentPass) {
+            setPassError("Please enter your current or temporary password.");
+            return;
+        }
+        if (newPass.length < 6) {
+            setPassError("New password must be at least 6 characters long.");
+            return;
+        }
+        if (newPass !== confirmPass) {
+            setPassError("New password and confirmation do not match.");
+            return;
+        }
+        if (newPass === currentPass) {
+            setPassError("New password cannot be the same as your current password.");
+            return;
+        }
+
+        setPassSubmitting(true);
+        try {
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const res = await fetch("/api/auth/change-password", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                    currentPassword: currentPass,
+                    newPassword: newPass,
+                    confirmPassword: confirmPass,
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || "Failed to update password");
+            }
+
+            if (data.token) localStorage.setItem("token", data.token);
+            if (data.user) {
+                localStorage.setItem("user", JSON.stringify(data.user));
+                setCurrentUser(data.user);
+            } else {
+                const updated = { ...currentUser, forcePasswordChange: false };
+                localStorage.setItem("user", JSON.stringify(updated));
+                setCurrentUser(updated);
+            }
+
+            setPassSuccess("Password updated successfully! You can now use your new password.");
+            setCurrentPass("");
+            setNewPass("");
+            setConfirmPass("");
+            setTimeout(() => {
+                setIsPasswordModalOpen(false);
+                setPassSuccess("");
+            }, 1500);
+        } catch (err: any) {
+            setPassError(err.message || "Failed to change password. Please check your current password.");
+        } finally {
+            setPassSubmitting(false);
+        }
+    };
 
     // Web Audio Synthesizer: 2-tone harmonic chime (880Hz -> 1174Hz)
     const playChimeSound = useCallback(() => {
@@ -448,19 +534,53 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         </span>
                     </div>
 
-                    <button
-                        onClick={toggleStatus}
-                        className={`flex items-center gap-2 px-5 py-2 rounded-full font-black text-xs uppercase tracking-wider transition-all shadow-sm ${
-                            isOnline 
-                                ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300' 
-                                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                        }`}
-                    >
-                        <Power size={13} />
-                        Go {isOnline ? 'Offline' : 'Online'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setIsPasswordModalOpen(true)}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-full font-black text-xs uppercase tracking-wider bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition-all shadow-sm active:scale-95"
+                            title="Change Driver Password"
+                        >
+                            <KeyRound size={13} className="text-emerald-700" />
+                            <span className="hidden sm:inline">Change Password</span>
+                            <span className="sm:hidden">Password</span>
+                        </button>
+
+                        <button
+                            onClick={toggleStatus}
+                            className={`flex items-center gap-2 px-5 py-2 rounded-full font-black text-xs uppercase tracking-wider transition-all shadow-sm ${
+                                isOnline 
+                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300' 
+                                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                            }`}
+                        >
+                            <Power size={13} />
+                            Go {isOnline ? 'Offline' : 'Online'}
+                        </button>
+                    </div>
                 </div>
             </div>
+
+            {/* Temporary Password Alert Banner */}
+            {currentUser?.forcePasswordChange && (
+                <div className="bg-amber-500 text-slate-950 px-4 py-3 font-bold text-xs border-b border-amber-600 shadow-inner">
+                    <div className="container mx-auto max-w-6xl flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-center sm:text-left">
+                            <AlertTriangle size={18} className="text-slate-950 shrink-0" />
+                            <span>
+                                <strong>Action Required:</strong> You are currently using an initial password assigned by the administrator. Please update your password to secure your account.
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsPasswordModalOpen(true)}
+                            className="px-4 py-1.5 bg-slate-950 hover:bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-wider shrink-0 transition-all shadow-sm active:scale-95"
+                        >
+                            Change Password Now
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Live Position Map */}
             {myCoords && (
@@ -625,6 +745,160 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         </div>
                     )}
 
+                    {/* Change Password Modal */}
+                    {isPasswordModalOpen && (
+                        <div 
+                            className="fixed inset-0 z-[220] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4"
+                            onClick={(e) => {
+                                if (e.target === e.currentTarget && !currentUser?.forcePasswordChange) {
+                                    setIsPasswordModalOpen(false);
+                                }
+                            }}
+                        >
+                            <div className="bg-white rounded-3xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                <div className="bg-slate-900 text-white p-6 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                                            <KeyRound size={20} />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-black text-white">Change Password</h3>
+                                            <p className="text-[11px] text-slate-400 font-medium">Driver Account Security</p>
+                                        </div>
+                                    </div>
+                                    {!currentUser?.forcePasswordChange && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsPasswordModalOpen(false)}
+                                            className="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg transition-colors"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+
+                                <form onSubmit={handleChangePassword} className="p-6 space-y-4">
+                                    {currentUser?.forcePasswordChange && (
+                                        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-900 font-semibold leading-relaxed">
+                                            An initial password was assigned by the System Administrator. Please verify your current password and create a new personal password.
+                                        </div>
+                                    )}
+
+                                    {/* Current Password */}
+                                    <div>
+                                        <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                                            Current / Initial Password
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                type={showCurrentPass ? "text" : "password"}
+                                                required
+                                                className="block w-full px-3.5 py-3 pr-10 border border-slate-200 placeholder-slate-400 text-slate-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 text-sm font-semibold transition-all"
+                                                placeholder="Enter current password"
+                                                value={currentPass}
+                                                onChange={(e) => setCurrentPass(e.target.value)}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowCurrentPass(!showCurrentPass)}
+                                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                                            >
+                                                {showCurrentPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* New Password */}
+                                    <div>
+                                        <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                                            New Password (min. 6 characters)
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                type={showNewPass ? "text" : "password"}
+                                                required
+                                                className="block w-full px-3.5 py-3 pr-10 border border-slate-200 placeholder-slate-400 text-slate-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 text-sm font-semibold transition-all"
+                                                placeholder="Enter new strong password"
+                                                value={newPass}
+                                                onChange={(e) => setNewPass(e.target.value)}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowNewPass(!showNewPass)}
+                                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                                            >
+                                                {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Confirm New Password */}
+                                    <div>
+                                        <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                                            Confirm New Password
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                type={showConfirmPass ? "text" : "password"}
+                                                required
+                                                className="block w-full px-3.5 py-3 pr-10 border border-slate-200 placeholder-slate-400 text-slate-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 text-sm font-semibold transition-all"
+                                                placeholder="Re-enter new password"
+                                                value={confirmPass}
+                                                onChange={(e) => setConfirmPass(e.target.value)}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowConfirmPass(!showConfirmPass)}
+                                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                                            >
+                                                {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {passError && (
+                                        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl text-center">
+                                            {passError}
+                                        </div>
+                                    )}
+
+                                    {passSuccess && (
+                                        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl flex items-center justify-center gap-2">
+                                            <CheckCircle2 size={16} />
+                                            {passSuccess}
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-3 pt-2">
+                                        {!currentUser?.forcePasswordChange && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsPasswordModalOpen(false)}
+                                                className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-xs uppercase tracking-wider transition-colors"
+                                            >
+                                                Cancel
+                                            </button>
+                                        )}
+                                        <button
+                                            type="submit"
+                                            disabled={passSubmitting}
+                                            className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider transition-colors shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                                        >
+                                            {passSubmitting ? (
+                                                <>
+                                                    <Loader2 size={15} className="animate-spin" />
+                                                    Updating...
+                                                </>
+                                            ) : (
+                                                "Update Password"
+                                            )}
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                         <div className="lg:col-span-8 space-y-8">
                             {/* Profile Header */}
@@ -654,6 +928,13 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         <div className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 shadow-sm">
                                             <Car size={13} className="text-slate-700" /> Toyota Sedan • Verified Plate
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsPasswordModalOpen(true)}
+                                            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95"
+                                        >
+                                            <KeyRound size={13} /> Change Password
+                                        </button>
                                     </div>
                                 </div>
                                 <div className="text-right hidden md:block shrink-0">
@@ -941,6 +1222,30 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         {testingPush ? "Playing Test Chime..." : "Test Chime & Alert"}
                                     </button>
                                 </div>
+                            </div>
+
+                            {/* Account & Password Security Card */}
+                            <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm space-y-4">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center border border-slate-200">
+                                        <Lock size={16} />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-black text-slate-900">Account Security</h4>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase">Password Management</p>
+                                    </div>
+                                </div>
+                                <p className="text-xs text-slate-500 leading-relaxed">
+                                    Update your password or replace the initial password provided by the administrator at any time.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsPasswordModalOpen(true)}
+                                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-900 rounded-xl font-black text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 border border-slate-200"
+                                >
+                                    <KeyRound size={14} className="text-emerald-600" />
+                                    Change Password
+                                </button>
                             </div>
 
                             <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm">
