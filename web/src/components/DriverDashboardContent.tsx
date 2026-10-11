@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import Image from "next/image";
 import dynamic from "next/dynamic";
 import AnnouncementFeed from "@/components/AnnouncementFeed";
 import RideReceipt from "@/components/RideReceipt";
@@ -1077,8 +1078,15 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         <div className="lg:col-span-8 space-y-8">
                             {/* Profile Header */}
                             <div className="flex flex-col md:flex-row items-center gap-6 bg-slate-50 border border-slate-200 p-6 md:p-8 rounded-3xl shadow-sm">
-                                <div className="w-20 h-20 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-3xl shadow-sm shrink-0">
-                                    {driverFullName ? driverFullName.charAt(0).toUpperCase() : "D"}
+                                <div className="w-20 h-20 bg-white border border-slate-200 rounded-2xl p-2.5 flex items-center justify-center shadow-sm shrink-0 overflow-hidden">
+                                    <Image
+                                        src="/africab-logo.png"
+                                        alt="AfriCab Logo"
+                                        width={72}
+                                        height={72}
+                                        className="w-full h-full object-contain drop-shadow-sm"
+                                        priority
+                                    />
                                 </div>
                                 <div className="text-center md:text-left space-y-1.5 flex-1 min-w-0">
                                     <div className="flex items-center justify-center md:justify-start gap-2 flex-wrap">
