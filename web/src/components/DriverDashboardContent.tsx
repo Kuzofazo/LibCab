@@ -29,10 +29,22 @@ import {
     Lock,
     Eye,
     EyeOff,
-    Loader2
+    Loader2,
+    Sparkles
 } from "lucide-react";
 import { formatDual } from "@/utils/currency";
 import type { MapMarker } from "@/components/MapComponent";
+
+const MOTIVATIONAL_MESSAGES = [
+    "Every Ride Counts. Every Customer Matters.",
+    "Drive Safely. Arrive Successfully.",
+    "Your Service Makes a Difference.",
+    "Every Journey Is an Opportunity.",
+    "Stay Focused. Drive Smart. Earn More.",
+    "Great Service Builds Great Reputation.",
+    "Your Next Ride Could Make Someone’s Day.",
+    "Safety First, Excellence Always."
+];
 
 const MapComponent = dynamic(() => import("@/components/MapComponent"), { ssr: false });
 
@@ -69,8 +81,13 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     const incomingOfferRef = useRef<any>(null);
     incomingOfferRef.current = incomingOffer;
 
-    // Password Management State
+    // Rotating Motivational Message State
+    const [msgIndex, setMsgIndex] = useState(0);
+    const [msgFade, setMsgFade] = useState<"in" | "out">("in");
+
+    // Password Management & User State
     const [currentUser, setCurrentUser] = useState(user);
+    const driverFullName = currentUser?.name || user?.name || "Driver Partner";
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(Boolean(user?.forcePasswordChange));
     const [currentPass, setCurrentPass] = useState("");
     const [newPass, setNewPass] = useState("");
@@ -198,6 +215,70 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
         if (typeof Notification !== "undefined") {
             setPushPermission(Notification.permission);
         }
+    }, []);
+
+    // Keep user state in sync with prop updates
+    useEffect(() => {
+        if (user) {
+            setCurrentUser((prev: any) => ({ ...prev, ...user }));
+        }
+    }, [user]);
+
+    // Backend sync: Retrieve authenticated driver's latest profile and full name from database
+    useEffect(() => {
+        let isMounted = true;
+        const syncDriverProfile = async () => {
+            try {
+                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                if (!token) return;
+                const res = await fetch("/api/driver/profile", {
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data?.user?.name && isMounted) {
+                        setCurrentUser((prev: any) => {
+                            const updated = {
+                                ...prev,
+                                name: data.user.name,
+                                phone: data.user.phone || prev?.phone,
+                                email: data.user.email || prev?.email,
+                            };
+                            try {
+                                localStorage.setItem("user", JSON.stringify(updated));
+                            } catch {}
+                            return updated;
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to sync driver profile:", err);
+            }
+        };
+
+        syncDriverProfile();
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    // Rotating Motivational Message: Auto-rotates every 6 seconds with smooth fade transition
+    useEffect(() => {
+        let fadeTimeout: NodeJS.Timeout;
+        const interval = setInterval(() => {
+            setMsgFade("out");
+            fadeTimeout = setTimeout(() => {
+                setMsgIndex((prev) => (prev + 1) % MOTIVATIONAL_MESSAGES.length);
+                setMsgFade("in");
+            }, 400);
+        }, 6000);
+
+        return () => {
+            clearInterval(interval);
+            clearTimeout(fadeTimeout);
+        };
     }, []);
 
     // Real-Time SSE Stream for Incoming Ride Offers
@@ -614,7 +695,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                             id: "driver-self",
                                             lat: myCoords.lat,
                                             lng: myCoords.lng,
-                                            title: user?.name || "You",
+                                            title: driverFullName || "You",
                                             subtitle: isOnline ? "Active on duty" : "Offline",
                                             type: "ASSIGNED_DRIVER" as const,
                                             vehicleType: "Car",
@@ -905,19 +986,36 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                             {/* Profile Header */}
                             <div className="flex flex-col md:flex-row items-center gap-6 bg-slate-50 border border-slate-200 p-6 md:p-8 rounded-3xl shadow-sm">
                                 <div className="w-20 h-20 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-3xl shadow-sm shrink-0">
-                                    {user?.name ? user.name.charAt(0) : "D"}
+                                    {driverFullName ? driverFullName.charAt(0).toUpperCase() : "D"}
                                 </div>
-                                <div className="text-center md:text-left space-y-1 flex-1">
+                                <div className="text-center md:text-left space-y-1.5 flex-1 min-w-0">
                                     <div className="flex items-center justify-center md:justify-start gap-2 flex-wrap">
                                         <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">
-                                            Driver {user?.name ? user.name.split(' ')[0] : 'Partner'}
+                                            {driverFullName}
                                         </h1>
-                                        <span className="text-[10px] font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 font-bold">
+                                        <span className="text-[10px] font-mono text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 font-bold shrink-0">
                                             PRO PARTNER
                                         </span>
                                     </div>
+
+                                    {/* Rotating Motivational Message */}
+                                    <div className="h-6 sm:h-7 flex items-center justify-center md:justify-start overflow-hidden">
+                                        <div
+                                            className={`flex items-center gap-2 text-xs sm:text-sm font-semibold text-emerald-700 transition-all duration-500 ease-in-out transform ${
+                                                msgFade === "in"
+                                                    ? "opacity-100 translate-y-0"
+                                                    : "opacity-0 -translate-y-2 pointer-events-none"
+                                            }`}
+                                            role="status"
+                                            aria-live="polite"
+                                        >
+                                            <Sparkles size={14} className="text-emerald-600 shrink-0 animate-pulse" />
+                                            <span className="italic tracking-tight">“{MOTIVATIONAL_MESSAGES[msgIndex]}”</span>
+                                        </div>
+                                    </div>
+
                                     <p className="text-slate-500 font-medium text-xs">
-                                        {user?.phone ? `MoMo Account: ${user.phone}` : "Verified Driver"} • Registered AfriCab Partner
+                                        {currentUser?.phone || user?.phone ? `MoMo Account: ${currentUser?.phone || user?.phone}` : "Verified Driver"} • Registered AfriCab Partner
                                     </p>
                                     <div className="flex flex-wrap justify-center md:justify-start gap-2 mt-3">
                                         <div className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 shadow-sm">

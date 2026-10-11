@@ -2,15 +2,15 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyJWT } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
-        const payload = await verifyJWT();
+        const payload = await verifyJWT(req);
 
         if (!payload || payload.role !== "DRIVER") {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const driverProfile = await prisma.driverProfile.findUnique({
+        let driverProfile = await prisma.driverProfile.findUnique({
             where: { userId: payload.userId },
             include: {
                 user: {
@@ -24,7 +24,28 @@ export async function GET() {
         });
 
         if (!driverProfile) {
-            return NextResponse.json({ error: "Driver profile not found" }, { status: 404 });
+            const userRecord = await prisma.user.findUnique({
+                where: { id: payload.userId },
+                select: { id: true, name: true, email: true, phone: true }
+            });
+            if (!userRecord) {
+                return NextResponse.json({ error: "Driver profile not found" }, { status: 404 });
+            }
+            driverProfile = await prisma.driverProfile.create({
+                data: {
+                    userId: userRecord.id,
+                    isOnline: false
+                },
+                include: {
+                    user: {
+                        select: {
+                            name: true,
+                            email: true,
+                            phone: true
+                        }
+                    }
+                }
+            });
         }
 
         return NextResponse.json(driverProfile);
