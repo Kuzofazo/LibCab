@@ -512,8 +512,14 @@ function GuestBookingContent() {
 
                                         <div className="p-4 flex items-center justify-between gap-3">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-xl shadow-sm shrink-0">
-                                                    {selectedDriver.name?.charAt(0)?.toUpperCase() || "D"}
+                                                <div className="w-12 h-12 rounded-2xl bg-white border border-slate-200 p-1.5 flex items-center justify-center shadow-sm shrink-0 overflow-hidden">
+                                                    <Image
+                                                        src="/africab-logo.png"
+                                                        alt="AfriCab Driver"
+                                                        width={40}
+                                                        height={40}
+                                                        className="w-full h-full object-contain"
+                                                    />
                                                 </div>
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-2 flex-wrap">
@@ -875,12 +881,15 @@ function GuestBookingContent() {
 
                                                     {/* Card Body */}
                                                     <div className="p-4 flex items-start gap-3.5">
-                                                        {/* Avatar Initial */}
-                                                        <div className={cn(
-                                                            "w-13 h-13 rounded-2xl flex items-center justify-center font-black text-xl shadow-sm shrink-0 relative transition-colors",
-                                                            isSelected ? "bg-emerald-600 text-white" : "bg-slate-900 text-white group-hover:bg-amber-500 group-hover:text-slate-950"
-                                                        )}>
-                                                            {driverItem.name?.charAt(0)?.toUpperCase() || "D"}
+                                                        {/* Avatar / App Logo */}
+                                                        <div className="w-13 h-13 rounded-2xl bg-white border border-slate-200 p-1.5 flex items-center justify-center shadow-sm shrink-0 relative overflow-hidden group-hover:border-amber-400">
+                                                            <Image
+                                                                src="/africab-logo.png"
+                                                                alt="AfriCab Driver"
+                                                                width={44}
+                                                                height={44}
+                                                                className="w-full h-full object-contain"
+                                                            />
                                                             <span className={cn(
                                                                 "absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white flex items-center justify-center",
                                                                 isMoving ? "bg-emerald-500" : "bg-emerald-500"
@@ -1128,8 +1137,14 @@ function GuestBookingContent() {
                             {driver?.driver ? (
                                 <div className="p-5 rounded-3xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                                     <div className="flex items-center gap-4">
-                                        <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-2xl shadow-sm shrink-0">
-                                            {driver.driver.user?.name?.charAt(0)?.toUpperCase() || "D"}
+                                        <div className="w-14 h-14 rounded-2xl bg-white border border-slate-200 p-1.5 flex items-center justify-center shadow-sm shrink-0 overflow-hidden">
+                                            <Image
+                                                src="/africab-logo.png"
+                                                alt="AfriCab Driver"
+                                                width={48}
+                                                height={48}
+                                                className="w-full h-full object-contain"
+                                            />
                                         </div>
                                         <div>
                                             <div className="flex items-center gap-2">

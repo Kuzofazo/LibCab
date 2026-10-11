@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Image from "next/image";
 import { useParams } from "next/navigation";
 import { 
     ShieldCheck, 
@@ -397,8 +398,14 @@ export default function PublicTrackRidePage() {
                     {ride?.driver ? (
                         <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-950/30 to-slate-900 border border-emerald-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                             <div className="flex items-center gap-4">
-                                <div className="w-14 h-14 rounded-2xl bg-emerald-600 flex items-center justify-center text-white font-black text-xl shadow-lg">
-                                    {ride.driver.name.charAt(0).toUpperCase()}
+                                <div className="w-14 h-14 rounded-2xl bg-white border border-white/20 p-1.5 flex items-center justify-center shadow-lg shrink-0 overflow-hidden">
+                                    <Image
+                                        src="/africab-logo.png"
+                                        alt="AfriCab Driver"
+                                        width={48}
+                                        height={48}
+                                        className="w-full h-full object-contain"
+                                    />
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2">

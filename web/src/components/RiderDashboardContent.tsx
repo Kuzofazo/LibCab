@@ -767,8 +767,14 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                             {activeRide.status !== "REQUESTED" && (
                                 <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
                                     <div className="flex items-center gap-3">
-                                        <div className="w-12 h-12 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-xl shadow-sm shrink-0">
-                                            {activeRide.driver?.user?.name?.charAt(0)?.toUpperCase() || "D"}
+                                        <div className="w-12 h-12 rounded-2xl bg-white border border-slate-200 p-1.5 flex items-center justify-center shadow-sm shrink-0 overflow-hidden">
+                                            <Image
+                                                src="/africab-logo.png"
+                                                alt="AfriCab Driver"
+                                                width={40}
+                                                height={40}
+                                                className="w-full h-full object-contain"
+                                            />
                                         </div>
                                         <div>
                                             <h3 className="text-base font-black text-slate-950">
