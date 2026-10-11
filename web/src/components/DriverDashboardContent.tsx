@@ -81,6 +81,10 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     const incomingOfferRef = useRef<any>(null);
     incomingOfferRef.current = incomingOffer;
 
+    const [acceptingRideId, setAcceptingRideId] = useState<string | null>(null);
+    const [statusUpdating, setStatusUpdating] = useState(false);
+    const [driverProfileId, setDriverProfileId] = useState<string | null>(user?.driverProfileId || null);
+
     // Rotating Motivational Message State
     const [msgIndex, setMsgIndex] = useState(0);
     const [msgFade, setMsgFade] = useState<"in" | "out">("in");
@@ -238,10 +242,14 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 });
                 if (res.ok) {
                     const data = await res.json();
+                    if (data?.id && isMounted) {
+                        setDriverProfileId(data.id);
+                    }
                     if (data?.user?.name && isMounted) {
                         setCurrentUser((prev: any) => {
                             const updated = {
                                 ...prev,
+                                driverProfileId: data.id,
                                 name: data.user.name,
                                 phone: data.user.phone || prev?.phone,
                                 email: data.user.email || prev?.email,
@@ -253,6 +261,15 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         });
                     }
                 }
+                // Ensure driver profile is marked active/online in database
+                fetch("/api/driver/profile", {
+                    method: "PATCH",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ isOnline: true })
+                }).catch(() => {});
             } catch (err) {
                 console.error("Failed to sync driver profile:", err);
             }
@@ -291,12 +308,18 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             try {
                 const payload = JSON.parse(event.data);
 
-                if (payload.type === "RIDE_OFFER_RECEIVED") {
+                if (payload.type === "RIDE_OFFER_RECEIVED" || payload.type === "RIDE_REQUESTED") {
                     const offerData = payload.data?.ride || payload.data;
                     const targetDriverId = payload.driverId;
 
-                    // Trigger if matching this driver
-                    if (!targetDriverId || targetDriverId === user.id || targetDriverId === user.driverProfileId) {
+                    // Match if offered to this driver or general broadcast
+                    const isTargetDriver = !targetDriverId || 
+                        targetDriverId === user.id || 
+                        targetDriverId === user.driverProfileId ||
+                        targetDriverId === driverProfileId ||
+                        targetDriverId === currentUser?.driverProfileId;
+
+                    if (isTargetDriver && !activeRide) {
                         playChimeSound();
 
                         // System Web Notification if page is backgrounded / minimized
@@ -331,6 +354,21 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                             }
                         }, 1000);
                     }
+                } else if (payload.type === "RIDE_ACCEPTED") {
+                    const isForMe = payload.driverId === driverProfileId || 
+                        payload.driverId === user.id ||
+                        payload.data?.driverId === driverProfileId ||
+                        payload.data?.driver?.userId === user.id;
+
+                    if (isForMe && payload.data) {
+                        setActiveRide(payload.data);
+                        setIncomingOffer(null);
+                        if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                    } else if (incomingOfferRef.current?.rideId === payload.rideId) {
+                        // Another driver accepted
+                        setIncomingOffer(null);
+                        if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                    }
                 } else if (payload.type === "RIDE_TAKEN" || payload.type === "RIDE_CANCELLED") {
                     if (incomingOfferRef.current?.rideId === payload.rideId) {
                         setIncomingOffer(null);
@@ -344,7 +382,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             sse.close();
             if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
         };
-    }, [user, isOnline, playChimeSound]);
+    }, [user, isOnline, playChimeSound, activeRide, driverProfileId, currentUser]);
 
     const fetchRides = useCallback(async (userId: string) => {
         try {
@@ -360,14 +398,28 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             if (Array.isArray(data)) {
                 // 1. Find my active ride (Accepted / Arrived / In Progress)
                 const myActiveRide = data.find(r =>
-                    (r.driver?.userId === userId || r.driverId === userId || r.driver?.id === userId) &&
+                    (
+                        r.driver?.userId === userId || 
+                        r.driverId === userId || 
+                        r.driver?.id === userId ||
+                        r.driverId === driverProfileId ||
+                        r.driver?.id === driverProfileId ||
+                        r.driver?.userId === user?.id
+                    ) &&
                     (r.status === "ACCEPTED" || r.status === "ARRIVED" || r.status === "IN_PROGRESS")
                 );
                 setActiveRide(myActiveRide || null);
 
                 // 2. Find completed rides for history & receipts
                 const myCompleted = data.filter(r =>
-                    (r.driver?.userId === userId || r.driverId === userId || r.driver?.id === userId) &&
+                    (
+                        r.driver?.userId === userId || 
+                        r.driverId === userId || 
+                        r.driver?.id === userId ||
+                        r.driverId === driverProfileId ||
+                        r.driver?.id === driverProfileId ||
+                        r.driver?.userId === user?.id
+                    ) &&
                     r.status === "COMPLETED"
                 );
                 setCompletedRides(myCompleted);
@@ -381,12 +433,12 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [driverProfileId, user]);
 
     useEffect(() => {
         if (user) {
             fetchRides(user.id);
-            const interval = setInterval(() => fetchRides(user.id), 5000);
+            const interval = setInterval(() => fetchRides(user.id), 3000);
             return () => clearInterval(interval);
         }
     }, [user, fetchRides]);
@@ -394,6 +446,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     // Atomic Ride Acceptance via /api/rides/accept
     const handleAcceptRide = async (rideId: string) => {
         if (!user) return;
+        setAcceptingRideId(rideId);
         try {
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
             const res = await fetch("/api/rides/accept", {
@@ -404,7 +457,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 },
                 body: JSON.stringify({
                     rideId,
-                    driverPaymentPhone: user.phone || "+231 88 012 3456"
+                    driverPaymentPhone: user.phone || currentUser?.phone || "+231 88 012 3456"
                 })
             });
 
@@ -413,7 +466,14 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             if (res.ok && data.success) {
                 setIncomingOffer(null);
                 if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                if (data.ride) {
+                    setActiveRide(data.ride);
+                }
                 fetchRides(user.id);
+                // Immediately broadcast current coordinates so customer's tracking map updates instantly
+                if (myCoords) {
+                    broadcastLocation(myCoords.lat, myCoords.lng);
+                }
             } else if (res.status === 409 || data.code === "ALREADY_TAKEN") {
                 alert("Trip Claimed: Another nearby driver accepted this ride request.");
                 setIncomingOffer(null);
@@ -424,6 +484,8 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             }
         } catch (error) {
             console.error("Failed to accept ride", error);
+        } finally {
+            setAcceptingRideId(null);
         }
     };
 
@@ -471,6 +533,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
 
     const handleUpdateStatus = async (status: string) => {
         if (!activeRide) return;
+        setStatusUpdating(true);
         try {
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
             const res = await fetch("/api/rides", {
@@ -482,15 +545,21 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 body: JSON.stringify({
                     id: activeRide.id,
                     status,
-                    driverPaymentPhone: user.phone || "+231 88 012 3456"
+                    driverPaymentPhone: user.phone || currentUser?.phone || "+231 88 012 3456"
                 })
             });
             if (res.ok) {
                 const updated = await res.json();
                 setActiveRide(updated);
+                // Immediately broadcast coordinates so customer sees driver at pickup or on journey
+                if (myCoords) {
+                    broadcastLocation(myCoords.lat, myCoords.lng);
+                }
             }
         } catch (e) {
             console.error("Failed to update status", e);
+        } finally {
+            setStatusUpdating(false);
         }
     };
 
@@ -540,9 +609,22 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
         } catch {}
     }, []);
 
-    const toggleStatus = () => {
+    const toggleStatus = async () => {
         const newStatus = !isOnline;
         setIsOnline(newStatus);
+        const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+        if (token) {
+            try {
+                await fetch("/api/driver/profile", {
+                    method: "PATCH",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ isOnline: newStatus })
+                });
+            } catch {}
+        }
         if (newStatus) {
             // Start GPS broadcasting when going online
             if ("geolocation" in navigator) {
@@ -567,17 +649,18 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
 
         const startBroadcast = () => {
             setGpsBroadcasting(true);
+            const intervalMs = activeRide ? 4000 : 8000;
             gpsIntervalRef.current = setInterval(() => {
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
-                        const { latitude: lat, longitude: lng, speed, altitude } = pos.coords;
+                        const { latitude: lat, longitude: lng, speed } = pos.coords;
                         setMyCoords({ lat, lng });
                         broadcastLocation(lat, lng, speed ? speed * 3.6 : 0, 0);
                     },
                     () => {},
-                    { enableHighAccuracy: true, timeout: 6000 }
+                    { enableHighAccuracy: true, timeout: 5000 }
                 );
-            }, 8000);
+            }, intervalMs);
         };
 
         // Initial position grab
@@ -803,10 +886,19 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         </button>
                                         <button
                                             type="button"
+                                            disabled={acceptingRideId === incomingOffer.rideId}
                                             onClick={() => handleAcceptRide(incomingOffer.rideId)}
-                                            className="flex-[2] py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-colors shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2"
+                                            className="flex-[2] py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-colors shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 disabled:opacity-75"
                                         >
-                                            <CheckCircle2 size={16} /> Accept Ride Request
+                                            {acceptingRideId === incomingOffer.rideId ? (
+                                                <>
+                                                    <Loader2 size={16} className="animate-spin" /> Accepting Ride...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <CheckCircle2 size={16} /> Accept Ride
+                                                </>
+                                            )}
                                         </button>
                                     </div>
                                 </div>
@@ -1155,32 +1247,38 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                             {activeRide.status === "ACCEPTED" && (
                                                 <button
                                                     type="button"
+                                                    disabled={statusUpdating}
                                                     onClick={() => handleUpdateStatus("ARRIVED")}
-                                                    className="px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-sm"
+                                                    className="px-6 py-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
                                                 >
-                                                    Mark Arrived at Pickup
+                                                    {statusUpdating ? <Loader2 size={15} className="animate-spin" /> : <MapPin size={15} className="text-emerald-400" />}
+                                                    Arrived
                                                 </button>
                                             )}
 
                                             {activeRide.status === "ARRIVED" && (
                                                 <button
                                                     type="button"
+                                                    disabled={statusUpdating}
                                                     onClick={() => handleUpdateStatus("IN_PROGRESS")}
-                                                    className="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-sm"
+                                                    className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
                                                 >
-                                                    Start Trip
+                                                    {statusUpdating ? <Loader2 size={15} className="animate-spin" /> : <Car size={15} />}
+                                                    Start Ride
                                                 </button>
                                             )}
 
-                                            <button
-                                                type="button"
-                                                disabled={completingTrip}
-                                                onClick={handleCompleteRide}
-                                                className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-sm disabled:opacity-50 flex items-center gap-1.5"
-                                            >
-                                                {completingTrip ? <RefreshCw className="animate-spin" size={14} /> : <CheckCircle2 size={14} />}
-                                                {completingTrip ? "Settling..." : "End Ride & Issue Receipt"}
-                                            </button>
+                                            {activeRide.status === "IN_PROGRESS" && (
+                                                <button
+                                                    type="button"
+                                                    disabled={completingTrip}
+                                                    onClick={handleCompleteRide}
+                                                    className="px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-red-600/20 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95"
+                                                >
+                                                    {completingTrip ? <RefreshCw className="animate-spin" size={15} /> : <CheckCircle2 size={15} />}
+                                                    {completingTrip ? "Settling..." : "End Ride & Issue Receipt"}
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -1219,10 +1317,19 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                             </div>
 
                                             <button
+                                                disabled={acceptingRideId === ride.id}
                                                 onClick={() => handleAcceptRide(ride.id)}
-                                                className="w-full py-4 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-2xl font-black text-xs uppercase tracking-wider transition-colors shadow-sm"
+                                                className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-colors shadow-md flex items-center justify-center gap-2 disabled:opacity-75"
                                             >
-                                                Accept Dispatch Request
+                                                {acceptingRideId === ride.id ? (
+                                                    <>
+                                                        <Loader2 size={16} className="animate-spin" /> Accepting Ride...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <CheckCircle2 size={16} /> Accept Ride
+                                                    </>
+                                                )}
                                             </button>
                                         </div>
                                     ))}

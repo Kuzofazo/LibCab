@@ -57,7 +57,7 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
     try {
-        const payload = await verifyJWT();
+        const payload = await verifyJWT(req);
 
         if (!payload || payload.role !== "DRIVER") {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

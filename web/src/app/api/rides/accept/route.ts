@@ -5,7 +5,7 @@ import { DispatchEngine } from "@/services/dispatchEngine";
 
 export async function POST(req: Request) {
     try {
-        const user = await verifyJWT();
+        const user = await verifyJWT(req);
         if (!user || user.role !== "DRIVER") {
             return NextResponse.json({ error: "Unauthorized. Driver access only." }, { status: 401 });
         }
@@ -17,12 +17,25 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "rideId is required." }, { status: 400 });
         }
 
-        const driverProfile = await prisma.driverProfile.findUnique({
+        let driverProfile = await prisma.driverProfile.findUnique({
             where: { userId: user.userId },
         });
 
         if (!driverProfile) {
-            return NextResponse.json({ error: "Driver profile not found." }, { status: 404 });
+            driverProfile = await prisma.driverProfile.create({
+                data: {
+                    userId: user.userId,
+                    isOnline: true,
+                    vehicleType: "Car",
+                    vehicleModel: "Toyota Sedan",
+                    licensePlate: "LB-CAB-101",
+                }
+            });
+        } else if (!driverProfile.isOnline) {
+            driverProfile = await prisma.driverProfile.update({
+                where: { id: driverProfile.id },
+                data: { isOnline: true }
+            });
         }
 
         const result = await DispatchEngine.acceptRideOffer(

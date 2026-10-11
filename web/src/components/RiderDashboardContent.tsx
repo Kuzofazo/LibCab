@@ -49,6 +49,26 @@ function rideChanged(prev: any, next: any): boolean {
         (prev.driver?.heading !== next.driver?.heading);
 }
 
+function getDistanceAndEta(lat1?: number, lng1?: number, lat2?: number, lng2?: number) {
+    if (!lat1 || !lng1 || !lat2 || !lng2) return null;
+    const R = 6371; // km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distanceKm = R * c;
+    const minutes = Math.max(1, Math.round((distanceKm / 28) * 60));
+    return {
+        distanceKm,
+        formattedDistance: distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`,
+        formattedEta: `${minutes} min`,
+        minutes
+    };
+}
+
 const Map = dynamic(() => import('@/components/MapComponent'), {
     ssr: false,
     loading: () => (
@@ -177,7 +197,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
                     if (type === "LOCATION_UPDATED" && data) {
                         setActiveRide((prev: any) => {
-                            if (prev && (prev.driverId === data.driverId || prev.driver?.id === data.driverId || prev.driver?.userId === data.userId)) {
+                            if (prev && (prev.driverId === data.driverId || prev.driver?.id === data.driverId || prev.driver?.userId === data.userId || prev.driverId === data.driverProfileId)) {
                                 return {
                                     ...prev,
                                     driver: {
@@ -193,7 +213,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                         });
                     }
 
-                    if (["RIDE_ACCEPTED", "DRIVER_ARRIVED", "RIDE_UPDATED", "DRIVER_ASSIGNED"].includes(type)) {
+                    if (["RIDE_ACCEPTED", "DRIVER_ARRIVED", "RIDE_UPDATED", "DRIVER_ASSIGNED", "RIDE_STARTED", "RIDE_CANCELLED", "RIDE_COMPLETED"].includes(type)) {
                         const myId = userIdRef.current;
                         const myRideId = activeRideIdRef.current;
                         if (data && (data.riderId === myId || data.id === myRideId || eventRideId === myRideId)) {
@@ -316,10 +336,11 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     useEffect(() => {
         if (user) {
             fetchRides();
-            const interval = setInterval(() => fetchRides(), 8000);
+            const pollMs = activeRide && ["REQUESTED", "ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"].includes(activeRide.status) ? 3000 : 8000;
+            const interval = setInterval(() => fetchRides(), pollMs);
             return () => clearInterval(interval);
         }
-    }, [user, fetchRides]);
+    }, [user, fetchRides, activeRide?.status]);
 
     const handleBookRide = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
@@ -485,9 +506,32 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         });
     }
 
+    // Dynamic driver distance & ETA calculation
+    const driverNav = (activeRide && activeRide.driver?.currentLat && activeRide.driver?.currentLng)
+        ? (activeRide.status === "IN_PROGRESS"
+            ? getDistanceAndEta(activeRide.driver.currentLat, activeRide.driver.currentLng, activeRide.destLat, activeRide.destLng)
+            : getDistanceAndEta(activeRide.driver.currentLat, activeRide.driver.currentLng, activeRide.originLat, activeRide.originLng))
+        : null;
+
     // Construct Routes
     const mapRoutes: any[] = [];
     if (activeRide) {
+        if ((activeRide.status === "ACCEPTED" || activeRide.status === "EN_ROUTE") && activeRide.driver?.currentLat && activeRide.driver?.currentLng) {
+            mapRoutes.push({
+                id: "driver-to-pickup-route",
+                origin: [activeRide.driver.currentLat, activeRide.driver.currentLng] as [number, number],
+                destination: [activeRide.originLat || 6.3156, activeRide.originLng || -10.8074] as [number, number],
+                color: "#059669",
+            });
+        }
+        if (activeRide.status === "IN_PROGRESS" && activeRide.driver?.currentLat && activeRide.driver?.currentLng) {
+            mapRoutes.push({
+                id: "driver-to-dest-route",
+                origin: [activeRide.driver.currentLat, activeRide.driver.currentLng] as [number, number],
+                destination: [activeRide.destLat || 6.3000, activeRide.destLng || -10.7900] as [number, number],
+                color: "#2563eb",
+            });
+        }
         mapRoutes.push({
             id: "active-trip-route",
             origin: [activeRide.originLat || 6.3156, activeRide.originLng || -10.8074] as [number, number],
@@ -573,82 +617,191 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                     </div>
                 )}
 
-                    {/* CASE 2: Active Ride Tracking -> Exact Match with Image 3 */}
+                    {/* CASE 2: Active Ride Tracking */}
                     {activeRide && activeRide.status !== "COMPLETED" && (
-                        <div className="space-y-6">
+                        <div className="space-y-4">
                             {/* Top Drag Handle */}
                             <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto -mt-2" />
 
-                            {/* Header: Vehicle Name, Arrival ETA, License Plate Badge & Car Photo */}
-                            <div className="flex items-start justify-between gap-4 pt-1">
-                                <div className="space-y-1">
-                                    <h2 className="text-2xl font-black text-slate-950 tracking-tight leading-tight">
-                                        {activeRide.driver?.vehicleColor || "Black"} {activeRide.driver?.vehicleModel || "Toyota Corolla"}
-                                    </h2>
-                                    <p className="text-sm font-semibold text-slate-600">
-                                        {activeRide.status === "ARRIVED" ? "driver has arrived!" : "arriving in 5 min"}
-                                    </p>
-                                    <div className="pt-2">
-                                        <span className="inline-block font-mono font-black text-sm text-slate-900 border-2 border-slate-900 px-3 py-1 rounded-xl tracking-wider">
-                                            {activeRide.driver?.licensePlate || "C 3555 OE"}
+                            {/* REQUESTED: Searching for Driver */}
+                            {activeRide.status === "REQUESTED" && (
+                                <div className="flex flex-col items-center justify-center text-center space-y-4 py-6">
+                                    <div className="relative">
+                                        <div className="w-20 h-20 rounded-full bg-amber-50 border-4 border-amber-400 flex items-center justify-center">
+                                            <Radio size={32} className="text-amber-500 animate-pulse" />
+                                        </div>
+                                        <span className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center">
+                                            <span className="w-2 h-2 rounded-full bg-white animate-ping absolute" />
+                                            <span className="w-2 h-2 rounded-full bg-white" />
                                         </span>
                                     </div>
-                                </div>
-
-                                <div className="w-32 h-20 relative shrink-0">
-                                    <Image
-                                        src="/assets/cars/black_sedan.jpg"
-                                        alt="Vehicle"
-                                        fill
-                                        className="object-contain"
-                                        priority
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Driver Profile Row: Avatar, Name, Rating, Chat & Call Action Buttons */}
-                            <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-13 h-13 rounded-full overflow-hidden relative border-2 border-white shadow-sm shrink-0">
-                                        <Image
-                                            src="/assets/cars/driver_portrait.jpg"
-                                            alt="Driver Avatar"
-                                            width={52}
-                                            height={52}
-                                            className="object-cover"
-                                        />
-                                    </div>
                                     <div>
-                                        <h3 className="text-base font-black text-slate-950">
-                                            {activeRide.driver?.user?.name || "Harry Parker"}
-                                        </h3>
-                                        <div className="flex items-center gap-1 text-xs font-bold text-amber-500">
-                                            <Star size={13} className="fill-amber-400 text-amber-400" />
-                                            <span>4.9</span>
+                                        <h2 className="text-xl font-black text-slate-950 tracking-tight">Searching for Your Driver</h2>
+                                        <p className="text-sm text-slate-500 font-medium mt-1">Broadcasting to the AfriCab network…</p>
+                                    </div>
+                                    <div className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-left space-y-2">
+                                        <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                                            <MapPin size={14} className="text-slate-800" />
+                                            <span className="truncate">{activeRide.originAddress}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                                            <Navigation size={14} className="text-slate-800" />
+                                            <span className="truncate">{activeRide.destAddress}</span>
                                         </div>
                                     </div>
-                                </div>
-
-                                <div className="flex items-center gap-2">
                                     <button
                                         type="button"
-                                        onClick={() => setShowChatModal(true)}
-                                        className="w-11 h-11 rounded-2xl bg-slate-900 text-white flex items-center justify-center hover:bg-slate-800 transition-colors shadow-sm"
+                                        onClick={handleCancelRide}
+                                        className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer"
                                     >
-                                        <MessageSquare size={18} />
+                                        <X size={15} /> Cancel Request
                                     </button>
-                                    <a
-                                        href={`tel:${activeRide.driver?.user?.phone || "+231880123456"}`}
-                                        className="w-11 h-11 rounded-2xl bg-white border border-slate-200 text-slate-900 flex items-center justify-center hover:bg-slate-100 transition-colors shadow-sm"
-                                    >
-                                        <Phone size={18} />
-                                    </a>
                                 </div>
-                            </div>
+                            )}
+
+                            {/* ACCEPTED / EN_ROUTE: Driver en route to pickup */}
+                            {(activeRide.status === "ACCEPTED" || activeRide.status === "EN_ROUTE") && (
+                                <>
+                                    {/* Status Banner */}
+                                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+                                        <span className="relative flex h-3 w-3 shrink-0">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+                                        </span>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-black text-emerald-800 leading-tight">Driver Accepted — On the Way!</p>
+                                            <p className="text-xs text-emerald-700 font-medium mt-0.5">
+                                                {activeRide.driver?.user?.name || "Your driver"} is heading to your pickup
+                                                {driverNav ? ` · ${driverNav.formattedDistance} · ETA ${driverNav.formattedEta}` : ""}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Vehicle Header */}
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div className="space-y-1">
+                                            <h2 className="text-2xl font-black text-slate-950 tracking-tight leading-tight">
+                                                {activeRide.driver?.vehicleColor || "AfriCab"} {activeRide.driver?.vehicleModel || "Sedan"}
+                                            </h2>
+                                            <p className="text-sm font-semibold text-emerald-700">
+                                                {driverNav ? `${driverNav.formattedDistance} · arrives in ${driverNav.formattedEta}` : "Heading to pickup…"}
+                                            </p>
+                                            <div className="pt-1">
+                                                <span className="inline-block font-mono font-black text-sm text-slate-900 border-2 border-slate-900 px-3 py-1 rounded-xl tracking-wider">
+                                                    {activeRide.driver?.licensePlate || "Verified"}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="w-32 h-20 relative shrink-0">
+                                            <Image src="/assets/cars/black_sedan.jpg" alt="Vehicle" fill className="object-contain" priority />
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
+                            {/* ARRIVED: Driver at pickup */}
+                            {activeRide.status === "ARRIVED" && (
+                                <>
+                                    <div className="bg-amber-50 border-2 border-amber-400 rounded-2xl px-4 py-3 flex items-center gap-3">
+                                        <span className="text-2xl">🚖</span>
+                                        <div>
+                                            <p className="text-sm font-black text-amber-900 leading-tight">Driver Has Arrived!</p>
+                                            <p className="text-xs text-amber-800 font-medium mt-0.5">
+                                                {activeRide.driver?.user?.name || "Your driver"} is waiting at your pickup point.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div className="space-y-1">
+                                            <h2 className="text-2xl font-black text-slate-950 tracking-tight leading-tight">
+                                                {activeRide.driver?.vehicleColor || "AfriCab"} {activeRide.driver?.vehicleModel || "Sedan"}
+                                            </h2>
+                                            <p className="text-sm font-semibold text-amber-700">Waiting at pickup location</p>
+                                            <div className="pt-1">
+                                                <span className="inline-block font-mono font-black text-sm text-slate-900 border-2 border-slate-900 px-3 py-1 rounded-xl tracking-wider">
+                                                    {activeRide.driver?.licensePlate || "Verified"}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="w-32 h-20 relative shrink-0">
+                                            <Image src="/assets/cars/black_sedan.jpg" alt="Vehicle" fill className="object-contain" priority />
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
+                            {/* IN_PROGRESS: Trip underway */}
+                            {activeRide.status === "IN_PROGRESS" && (
+                                <>
+                                    <div className="bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+                                        <span className="text-2xl">🛣️</span>
+                                        <div>
+                                            <p className="text-sm font-black text-blue-900 leading-tight">Trip In Progress — Safe Journey!</p>
+                                            <p className="text-xs text-blue-800 font-medium mt-0.5">
+                                                {driverNav ? `${driverNav.formattedDistance} to destination · ETA ${driverNav.formattedEta}` : "En route to your destination"}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div className="space-y-1">
+                                            <h2 className="text-2xl font-black text-slate-950 tracking-tight leading-tight">
+                                                {activeRide.driver?.vehicleColor || "AfriCab"} {activeRide.driver?.vehicleModel || "Sedan"}
+                                            </h2>
+                                            <p className="text-sm font-semibold text-blue-700">
+                                                {driverNav ? `ETA ${driverNav.formattedEta} · ${driverNav.formattedDistance} remaining` : "Heading to destination…"}
+                                            </p>
+                                            <div className="pt-1">
+                                                <span className="inline-block font-mono font-black text-sm text-slate-900 border-2 border-slate-900 px-3 py-1 rounded-xl tracking-wider">
+                                                    {activeRide.driver?.licensePlate || "Verified"}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="w-32 h-20 relative shrink-0">
+                                            <Image src="/assets/cars/black_sedan.jpg" alt="Vehicle" fill className="object-contain" priority />
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Driver Profile Row (shown for all non-REQUESTED statuses) */}
+                            {activeRide.status !== "REQUESTED" && (
+                                <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-12 h-12 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-xl shadow-sm shrink-0">
+                                            {activeRide.driver?.user?.name?.charAt(0)?.toUpperCase() || "D"}
+                                        </div>
+                                        <div>
+                                            <h3 className="text-base font-black text-slate-950">
+                                                {activeRide.driver?.user?.name || "AfriCab Driver"}
+                                            </h3>
+                                            <div className="flex items-center gap-1 text-xs font-bold text-amber-500">
+                                                <Star size={13} className="fill-amber-400 text-amber-400" />
+                                                <span>{activeRide.driver?.rating ? activeRide.driver.rating.toFixed(1) : "5.0"}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowChatModal(true)}
+                                            className="w-11 h-11 rounded-2xl bg-slate-900 text-white flex items-center justify-center hover:bg-slate-800 transition-colors shadow-sm"
+                                        >
+                                            <MessageSquare size={18} />
+                                        </button>
+                                        <a
+                                            href={`tel:${activeRide.driver?.user?.phone || "+231880123456"}`}
+                                            className="w-11 h-11 rounded-2xl bg-white border border-slate-200 text-slate-900 flex items-center justify-center hover:bg-slate-100 transition-colors shadow-sm"
+                                        >
+                                            <Phone size={18} />
+                                        </a>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="border-t border-slate-100" />
 
-                            {/* Trip Route Details with Pencil Edit Icons */}
+                            {/* Trip Route Details */}
                             <div className="space-y-4">
                                 {/* Pickup */}
                                 <div className="flex items-center justify-between gap-3">
@@ -660,19 +813,6 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                             <span className="text-[11px] font-bold text-slate-400 uppercase block">Pick up</span>
                                             <p className="text-sm font-bold text-slate-900 truncate">{activeRide.originAddress}</p>
                                         </div>
-                                    </div>
-                                    <button type="button" className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 transition-colors">
-                                        <Edit2 size={14} />
-                                    </button>
-                                </div>
-
-                                {/* Add Stop Option */}
-                                <div className="flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                                        <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
-                                            <Plus size={15} className="text-slate-800" />
-                                        </div>
-                                        <p className="text-sm font-bold text-slate-900">Add stop</p>
                                     </div>
                                     <button type="button" className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 transition-colors">
                                         <Edit2 size={14} />
@@ -698,21 +838,6 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
                             <div className="border-t border-slate-100" />
 
-                            {/* Share Location Toggle Row */}
-                            <div className="flex items-center justify-between py-1">
-                                <span className="text-sm font-black text-slate-900">Share my location to driver</span>
-                                <button
-                                    type="button"
-                                    onClick={() => setShareLocation(!shareLocation)}
-                                    className={cn(
-                                        "w-13 h-7 rounded-full p-1 transition-colors relative flex items-center",
-                                        shareLocation ? "bg-amber-400 justify-end" : "bg-slate-200 justify-start"
-                                    )}
-                                >
-                                    <span className="w-5 h-5 rounded-full bg-white shadow-md inline-block" />
-                                </button>
-                            </div>
-
                             {/* Payment Method Row */}
                             <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
                                 <div>
@@ -735,15 +860,25 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                 <Share2 size={15} /> Share Live Route
                             </button>
 
-                            {/* Bottom Dual Action Buttons: Cancel Ride & New Request */}
+                            {/* Bottom Dual Action Buttons */}
                             <div className="flex gap-3 pt-1">
-                                <button
-                                    type="button"
-                                    onClick={handleCancelRide}
-                                    className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-900 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                                >
-                                    <X size={16} /> Cancel ride
-                                </button>
+                                {activeRide.status === "REQUESTED" || activeRide.status === "ACCEPTED" ? (
+                                    <button
+                                        type="button"
+                                        onClick={handleCancelRide}
+                                        className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-900 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                    >
+                                        <X size={16} /> Cancel ride
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveRide(null)}
+                                        className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-900 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                    >
+                                        <Plus size={16} /> New request
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     onClick={() => setActiveRide(null)}

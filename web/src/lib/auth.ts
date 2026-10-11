@@ -26,11 +26,21 @@ export async function verifyJWT(req?: Request): Promise<JWTPayload | null> {
         } catch {}
     }
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        return null;
+    let token: string | null = null;
+
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+        token = authHeader.split(" ")[1];
+    } else {
+        try {
+            const { cookies } = await import("next/headers");
+            const cookieStore = await cookies();
+            token = cookieStore.get("token")?.value || null;
+        } catch {}
     }
 
-    const token = authHeader.split(" ")[1];
+    if (!token) {
+        return null;
+    }
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;

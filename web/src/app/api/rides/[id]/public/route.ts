@@ -53,7 +53,8 @@ export async function GET(
                         heading: true,
                         user: {
                             select: {
-                                name: true
+                                name: true,
+                                phone: true
                             }
                         }
                     }
@@ -87,7 +88,25 @@ export async function GET(
             sosAlert: ride.sosAlert,
             passengerName: passengerDisplayName,
             driver: ride.driver ? {
+                id: ride.driver.id,
                 name: ride.driver.user?.name || "Verified AfriCab Driver",
+                user: {
+                    name: ride.driver.user?.name || "Verified AfriCab Driver",
+                    phone: ride.driver.user?.phone || null
+                },
+                driver: {
+                    id: ride.driver.id,
+                    user: {
+                        name: ride.driver.user?.name || "Verified AfriCab Driver",
+                        phone: ride.driver.user?.phone || null
+                    },
+                    vehicleModel: ride.driver.vehicleModel || "AfriCab Sedan",
+                    vehicleColor: ride.driver.vehicleColor || "Standard",
+                    vehicleType: ride.driver.vehicleType || "Car",
+                    licensePlate: ride.driver.licensePlate || "Verified",
+                    rating: ride.driver.rating || 5.0,
+                },
+                vehicleType: ride.driver.vehicleType || "Car",
                 vehicleModel: ride.driver.vehicleModel || "AfriCab Sedan",
                 vehicleColor: ride.driver.vehicleColor || "Standard",
                 licensePlate: ride.driver.licensePlate || "Verified",

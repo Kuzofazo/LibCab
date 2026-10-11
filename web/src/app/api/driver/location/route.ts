@@ -5,7 +5,7 @@ import { rideStreamManager } from "@/lib/sse";
 
 export async function POST(req: Request) {
     try {
-        const user = await verifyJWT();
+        const user = await verifyJWT(req);
         if (!user || user.role !== "DRIVER") {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
@@ -17,10 +17,10 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Invalid coordinates" }, { status: 400 });
         }
 
-        // Update DriverProfile with IMEI anchor & live telemetry
-        const updatedProfile = await prisma.driverProfile.update({
+        // Upsert DriverProfile with IMEI anchor & live telemetry
+        const updatedProfile = await prisma.driverProfile.upsert({
             where: { userId: user.userId },
-            data: {
+            update: {
                 currentLat: lat,
                 currentLng: lng,
                 isOnline: true,
@@ -31,6 +31,20 @@ export async function POST(req: Request) {
                 lastPing: new Date(),
                 ...(imei ? { imei } : {}),
                 ...(licensePlate ? { licensePlate } : {}),
+            },
+            create: {
+                userId: user.userId,
+                currentLat: lat,
+                currentLng: lng,
+                isOnline: true,
+                speed: parseFloat(speed) || 0,
+                heading: parseFloat(heading) || 0,
+                batteryLevel: parseInt(batteryLevel) || 100,
+                signalStrength: parseInt(signalStrength) || 100,
+                vehicleType: "Car",
+                vehicleModel: "Toyota Sedan",
+                licensePlate: licensePlate || "LB-CAB-101",
+                lastPing: new Date(),
             },
             include: {
                 user: { select: { name: true, phone: true, email: true } },

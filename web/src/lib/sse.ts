@@ -11,6 +11,7 @@ export type RideEventType =
     | "RIDE_OFFER_EXPIRED"
     | "RIDE_ACCEPTED" 
     | "DRIVER_ARRIVED"
+    | "RIDE_STARTED"
     | "DRIVER_ONLINE" 
     | "DRIVER_OFFLINE"
     | "RIDE_CANCELLED"

@@ -259,23 +259,33 @@ export class DispatchEngine {
     }> {
         try {
             // 1. Verify driver availability
-            const driver = await prisma.driverProfile.findUnique({
+            let driver = await prisma.driverProfile.findUnique({
                 where: { id: driverProfileId },
                 include: { user: { select: { name: true, phone: true } } },
             });
 
-            if (!driver || !driver.isOnline) {
+            if (!driver) {
                 return {
                     success: false,
-                    code: "DRIVER_UNAVAILABLE",
-                    message: "You must be online to accept ride requests.",
+                    code: "NOT_FOUND",
+                    message: "Driver profile not found.",
                 };
             }
 
-            // 2. Check if driver is already on another active ride
+            // Ensure driver is marked online in database when actively accepting
+            if (!driver.isOnline) {
+                driver = await prisma.driverProfile.update({
+                    where: { id: driverProfileId },
+                    data: { isOnline: true },
+                    include: { user: { select: { name: true, phone: true } } },
+                });
+            }
+
+            // 2. Check if driver is already on another active ride (excluding this ride)
             const existingActive = await prisma.ride.findFirst({
                 where: {
                     driverId: driverProfileId,
+                    id: { not: rideId },
                     status: { in: ["ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] },
                 },
             });
@@ -284,16 +294,19 @@ export class DispatchEngine {
                 return {
                     success: false,
                     code: "DRIVER_UNAVAILABLE",
-                    message: "You already have an active ride in progress.",
+                    message: "You already have another active ride in progress.",
                 };
             }
 
-            // 3. Atomically assign ride: only updates if status is REQUESTED and driverId is null!
+            // 3. Atomically assign ride: allows if status is REQUESTED and (driverId is null or already this driver)
             const updateResult = await prisma.ride.updateMany({
                 where: {
                     id: rideId,
                     status: "REQUESTED",
-                    driverId: null,
+                    OR: [
+                        { driverId: null },
+                        { driverId: driverProfileId }
+                    ]
                 },
                 data: {
                     status: "ACCEPTED",
@@ -303,7 +316,32 @@ export class DispatchEngine {
             });
 
             if (updateResult.count === 0) {
-                // Another driver already accepted, or ride was cancelled
+                // Check if already assigned to this driver
+                const alreadyAssigned = await prisma.ride.findFirst({
+                    where: {
+                        id: rideId,
+                        driverId: driverProfileId,
+                        status: { in: ["ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] },
+                    },
+                    include: {
+                        rider: { select: { id: true, name: true, phone: true, email: true } },
+                        driver: {
+                            include: {
+                                user: { select: { id: true, name: true, phone: true, email: true } },
+                            },
+                        },
+                    },
+                });
+
+                if (alreadyAssigned) {
+                    return {
+                        success: true,
+                        code: "SUCCESS",
+                        message: "Ride accepted successfully!",
+                        ride: alreadyAssigned,
+                    };
+                }
+
                 return {
                     success: false,
                     code: "ALREADY_TAKEN",

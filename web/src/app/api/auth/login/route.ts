@@ -15,6 +15,7 @@ export async function POST(req: Request) {
 
         const user = await prisma.user.findUnique({
             where: { email },
+            include: { driverProfile: true },
         });
 
         if (!user || !user.isActive) {
@@ -23,6 +24,27 @@ export async function POST(req: Request) {
 
         if (!user.password || !(await bcrypt.compare(password, user.password))) {
             return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+        }
+
+        let driverProfileId = user.driverProfile?.id;
+        if (user.role === "DRIVER") {
+            if (!user.driverProfile) {
+                const newProfile = await prisma.driverProfile.create({
+                    data: {
+                        userId: user.id,
+                        isOnline: true,
+                        vehicleType: "Car",
+                        vehicleModel: "Toyota Sedan",
+                        licensePlate: "LB-CAB-101",
+                    }
+                });
+                driverProfileId = newProfile.id;
+            } else if (!user.driverProfile.isOnline) {
+                await prisma.driverProfile.update({
+                    where: { id: user.driverProfile.id },
+                    data: { isOnline: true },
+                });
+            }
         }
 
         const token = jwt.sign(
@@ -49,6 +71,7 @@ export async function POST(req: Request) {
                 email: user.email, 
                 name: user.name, 
                 role: user.role,
+                driverProfileId: driverProfileId || undefined,
                 forcePasswordChange: user.forcePasswordChange
             },
         });

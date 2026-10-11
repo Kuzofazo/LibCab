@@ -215,10 +215,11 @@ function GuestBookingContent() {
         if (urlCategory && trip.category === "Regular") setTrip(prev => ({ ...prev, category: urlCategory }));
     }, [searchParams]);
 
-    // Live Stream for active ride in step 3
+    // Live Stream for active ride in step 3 (SSE + 3-second polling fallback)
     useEffect(() => {
         if (step !== 3 || !rideId) return;
 
+        // SSE listener
         let eventSource: EventSource | null = null;
         try {
             eventSource = new EventSource("/api/rides/stream");
@@ -238,19 +239,54 @@ function GuestBookingContent() {
                         }
                     }
 
-                    if (["RIDE_ACCEPTED", "DRIVER_ARRIVED", "RIDE_UPDATED", "DRIVER_ASSIGNED"].includes(type)) {
-                        if (data && data.id === rideId) {
+                    if (["RIDE_ACCEPTED", "DRIVER_ARRIVED", "RIDE_UPDATED", "DRIVER_ASSIGNED", "RIDE_STARTED", "RIDE_CANCELLED", "RIDE_COMPLETED"].includes(type)) {
+                        if (data && (data.id === rideId || parsed.rideId === rideId)) {
                             setDriver(data);
+                            // Update live coords from driver location if present
+                            if (data.driver?.currentLat && data.driver?.currentLng) {
+                                setDriverLiveCoords({
+                                    lat: data.driver.currentLat,
+                                    lng: data.driver.currentLng,
+                                    speed: data.driver.speed,
+                                    heading: data.driver.heading
+                                });
+                            }
                         }
                     }
                 } catch {}
             };
         } catch {}
 
+        // 3-second polling fallback — hits the public endpoint (no auth required)
+        const pollInterval = setInterval(async () => {
+            if (!rideId) return;
+            try {
+                const res = await fetch(`/api/rides/${rideId}/public`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setDriver((prev: RideStatus | null) => {
+                        if (prev?.status !== data.status || (data.driver && !prev?.driver)) {
+                            return { ...prev, ...data };
+                        }
+                        return prev;
+                    });
+                    if (data.driver?.currentLat && data.driver?.currentLng) {
+                        setDriverLiveCoords({
+                            lat: data.driver.currentLat,
+                            lng: data.driver.currentLng,
+                            speed: data.driver.speed,
+                            heading: data.driver.heading
+                        });
+                    }
+                }
+            } catch {}
+        }, 3000);
+
         return () => {
             if (eventSource) eventSource.close();
+            clearInterval(pollInterval);
         };
-    }, [step, rideId, driver?.driver?.id, driver?.driverId]);
+    }, [step, rideId]);
 
     const handleContinue = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -978,31 +1014,60 @@ function GuestBookingContent() {
                     <div className="max-w-3xl mx-auto my-6 space-y-6">
                         {/* Main Dispatch Card */}
                         <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
-                            {/* Status Header */}
-                            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                                <div className="flex items-center gap-3">
-                                    <span className="relative flex h-3.5 w-3.5">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                                        <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500" />
-                                    </span>
-                                    <div>
-                                        <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 block">
-                                            {driver?.driver ? "Driver Assigned & Connected" : "Connecting With Nearest Driver"}
+                            {/* Status Header with color-coded banners */}
+                            <div className="border-b border-slate-100 pb-4 space-y-3">
+                                {/* REQUESTED: Searching */}
+                                {(!driver?.status || driver?.status === "REQUESTED") && !driver?.driver && (
+                                    <div className="flex items-center gap-3">
+                                        <span className="relative flex h-3.5 w-3.5 shrink-0">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                                            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-amber-500" />
                                         </span>
-                                        <p className="text-lg font-black text-slate-950">
-                                            {driver?.status === "ARRIVED"
-                                                ? "Driver is Waiting at Pickup Point! 🚖"
-                                                : driver?.status === "IN_PROGRESS"
-                                                ? "Trip in Progress — Safe Journey!"
-                                                : driver?.driver
-                                                ? `${driver.driver.user?.name} is En Route`
-                                                : "Broadcasting to Monrovia Network..."}
-                                        </p>
+                                        <div>
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 block">Connecting With Nearest Driver</span>
+                                            <p className="text-lg font-black text-slate-950">Broadcasting to Monrovia Network...</p>
+                                        </div>
                                     </div>
+                                )}
+                                {/* ACCEPTED / EN_ROUTE */}
+                                {(driver?.status === "ACCEPTED" || driver?.status === "EN_ROUTE" || (driver?.driver && !driver?.status)) && (
+                                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+                                        <span className="relative flex h-3.5 w-3.5 shrink-0">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500" />
+                                        </span>
+                                        <div>
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 block">Driver Assigned &amp; En Route</span>
+                                            <p className="text-base font-black text-slate-950">{driver?.driver?.user?.name || "Your Driver"} is heading to your pickup! 🚗</p>
+                                        </div>
+                                    </div>
+                                )}
+                                {/* ARRIVED */}
+                                {driver?.status === "ARRIVED" && (
+                                    <div className="bg-amber-50 border-2 border-amber-400 rounded-2xl px-4 py-3 flex items-center gap-3">
+                                        <span className="text-2xl">🚖</span>
+                                        <div>
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 block">Driver Has Arrived!</span>
+                                            <p className="text-base font-black text-slate-950">{driver?.driver?.user?.name || "Your driver"} is waiting at your pickup point!</p>
+                                        </div>
+                                    </div>
+                                )}
+                                {/* IN_PROGRESS */}
+                                {driver?.status === "IN_PROGRESS" && (
+                                    <div className="bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+                                        <span className="text-2xl">🛣️</span>
+                                        <div>
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-blue-700 block">Trip In Progress</span>
+                                            <p className="text-base font-black text-slate-950">Safe Journey — En route to your destination!</p>
+                                        </div>
+                                    </div>
+                                )}
+                                {/* Ride ID badge */}
+                                <div className="flex items-center justify-end">
+                                    <span className="text-xs font-mono font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-xl border border-slate-200">
+                                        #{rideId?.slice(-6).toUpperCase() || "LIVE"}
+                                    </span>
                                 </div>
-                                <span className="text-xs font-mono font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-xl border border-slate-200">
-                                    #{rideId?.slice(-6).toUpperCase() || "LIVE"}
-                                </span>
                             </div>
 
                             {/* Live Map */}

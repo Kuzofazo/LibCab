@@ -6,9 +6,9 @@ import { idempotencyStore } from "@/lib/idempotency";
 import { rideStreamManager } from "@/lib/sse";
 import { DispatchEngine } from "@/services/dispatchEngine";
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
-        const user = await verifyJWT();
+        const user = await verifyJWT(req);
         if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
@@ -35,7 +35,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
     try {
-        const user = await verifyJWT();
+        const user = await verifyJWT(req);
         if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
@@ -200,7 +200,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
     try {
-        const user = await verifyJWT();
+        const user = await verifyJWT(req);
         if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
@@ -298,6 +298,16 @@ export async function PATCH(req: Request) {
             data: updatedRide,
             timestamp: new Date().toISOString(),
         });
+
+        if (status === "IN_PROGRESS") {
+            rideStreamManager.publish({
+                type: "RIDE_STARTED",
+                rideId: updatedRide.id,
+                driverId: updatedRide.driverId || undefined,
+                data: updatedRide,
+                timestamp: new Date().toISOString(),
+            });
+        }
 
         if (driverId || updateData.status) {
             try {
