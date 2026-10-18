@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Mail, Lock, Loader2, Eye, EyeOff } from "lucide-react";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
@@ -57,9 +58,16 @@ export default function LoginPage() {
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
             <div className="sm:mx-auto sm:w-full sm:max-w-md">
-                <Link href="/" className="flex justify-center mb-6">
-                    <div className="w-12 h-12 bg-[#042a22] text-white rounded-xl flex items-center justify-center font-bold text-2xl shadow-lg">
-                        P
+                <Link href="/" className="flex justify-center mb-6 group">
+                    <div className="w-14 h-14 bg-[#042a22] text-white rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform overflow-hidden p-1.5 border border-emerald-900/40">
+                        <Image
+                            src="/africab-logo.png"
+                            alt="AfriCab Logo"
+                            width={56}
+                            height={56}
+                            className="w-full h-full object-contain"
+                            priority
+                        />
                     </div>
                 </Link>
                 <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">

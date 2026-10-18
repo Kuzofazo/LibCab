@@ -227,14 +227,15 @@ export default function SignupPage() {
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
             <div className="sm:mx-auto sm:w-full sm:max-w-xl animate-in slide-in-from-bottom-4 duration-500">
-                <Link href="/" className="flex justify-center mb-6">
-                    <div className="w-14 h-14 bg-[#042a22] text-white rounded-2xl flex items-center justify-center font-black text-3xl shadow-lg hover:scale-105 transition-transform overflow-hidden">
+                <Link href="/" className="flex justify-center mb-6 group">
+                    <div className="w-14 h-14 bg-[#042a22] text-white rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform overflow-hidden p-1.5 border border-emerald-900/40">
                         <Image
                             src="/africab-logo.png"
                             alt="AfriCab"
                             width={56}
                             height={56}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-contain"
+                            priority
                         />
                     </div>
                 </Link>

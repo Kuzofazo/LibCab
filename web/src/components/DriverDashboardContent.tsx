@@ -90,6 +90,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     const [acceptingRideId, setAcceptingRideId] = useState<string | null>(null);
     const [statusUpdating, setStatusUpdating] = useState(false);
     const [driverProfileId, setDriverProfileId] = useState<string | null>(user?.driverProfileId || null);
+    const [viewingReceiptRide, setViewingReceiptRide] = useState<any>(null);
 
     // Rotating Motivational Message State
     const [msgIndex, setMsgIndex] = useState(0);
