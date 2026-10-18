@@ -21,17 +21,15 @@ export async function POST(req: Request) {
             where: { userId: user.userId },
         });
 
-        if (!driverProfile) {
-            driverProfile = await prisma.driverProfile.create({
-                data: {
-                    userId: user.userId,
-                    isOnline: true,
-                    vehicleType: "Car",
-                    vehicleModel: "Toyota Sedan",
-                    licensePlate: "LB-CAB-101",
-                }
-            });
-        } else if (!driverProfile.isOnline) {
+        if (!driverProfile || (driverProfile.approvalStatus && driverProfile.approvalStatus !== "APPROVED")) {
+            return NextResponse.json({ 
+                error: "Your driver account is pending review or not approved. You cannot accept rides.",
+                code: "DRIVER_NOT_APPROVED",
+                approvalStatus: driverProfile?.approvalStatus || "PENDING"
+            }, { status: 403 });
+        }
+
+        if (!driverProfile.isOnline) {
             driverProfile = await prisma.driverProfile.update({
                 where: { id: driverProfile.id },
                 data: { isOnline: true }

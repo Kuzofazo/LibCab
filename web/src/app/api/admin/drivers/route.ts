@@ -29,6 +29,8 @@ export async function GET() {
             email: d.email,
             phone: d.phone,
             status: d.driverProfile?.isOnline ? "ONLINE" : "OFFLINE",
+            approvalStatus: d.driverProfile?.approvalStatus || "APPROVED",
+            rejectionReason: d.driverProfile?.rejectionReason || null,
             rating: d.driverProfile?.rating || 5.0,
             vehicle: `${d.driverProfile?.vehicleColor || ""} ${d.driverProfile?.vehicleModel || ""}`.trim() || "N/A",
             licensePlate: d.driverProfile?.licensePlate || "N/A",

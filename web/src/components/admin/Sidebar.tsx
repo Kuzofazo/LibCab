@@ -18,12 +18,14 @@ import {
     ChevronDown,
     Radio,
     Star,
-    Building2
+    Building2,
+    UserCheck
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const menuItems = [
     { icon: LayoutDashboard, label: "DASHBOARD", href: "/admin" },
+    { icon: UserCheck, label: "DRIVER SIGN-UP", href: "/admin/driver-signups", isNewFeature: true },
     { icon: Radio, label: "FLEET TRACKING", href: "/admin/fleet" },
     { icon: Building2, label: "COMPANIES", href: "/admin/companies" },
     { icon: Map, label: "DISPATCH", href: "/admin/dispatch" },
@@ -42,6 +44,29 @@ export default function AdminSidebar() {
     const navRef = useRef<HTMLElement>(null);
     const [showUpBtn, setShowUpBtn] = useState(false);
     const [showDownBtn, setShowDownBtn] = useState(false);
+    const [pendingCount, setPendingCount] = useState<number>(0);
+
+    useEffect(() => {
+        const fetchPendingCount = async () => {
+            try {
+                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                if (!token) return;
+                const res = await fetch("/api/admin/driver-signups", {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data?.stats?.pending !== undefined) {
+                        setPendingCount(data.stats.pending);
+                    }
+                }
+            } catch {}
+        };
+
+        fetchPendingCount();
+        const interval = setInterval(fetchPendingCount, 15000);
+        return () => clearInterval(interval);
+    }, []);
 
     useEffect(() => {
         const userStr = localStorage.getItem("user");
@@ -157,7 +182,15 @@ export default function AdminSidebar() {
                                 )}
                                 
                                 <item.icon size={18} className={cn("relative z-10", isActive ? "text-black" : "text-white/40 group-hover:text-white")} />
-                                <span className="relative z-10">{item.label}</span>
+                                <span className="relative z-10 flex-1">{item.label}</span>
+                                {item.href === "/admin/driver-signups" && pendingCount > 0 && (
+                                    <span className={cn(
+                                        "relative z-10 ml-auto px-2 py-0.5 text-[9px] font-black rounded-full transition-colors flex items-center justify-center animate-pulse",
+                                        isActive ? "bg-black text-amber-400" : "bg-amber-500 text-black shadow-lg shadow-amber-500/30"
+                                    )}>
+                                        {pendingCount}
+                                    </span>
+                                )}
                             </Link>
                         );
                     })}

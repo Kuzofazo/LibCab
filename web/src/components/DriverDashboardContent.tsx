@@ -57,9 +57,14 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     const [activeRide, setActiveRide] = useState<any>(null);
     const [availableRides, setAvailableRides] = useState<any[]>([]);
     const [completedRides, setCompletedRides] = useState<any[]>([]);
-    const [viewingReceiptRide, setViewingReceiptRide] = useState<any | null>(null);
     const [loading, setLoading] = useState(true);
-    const [isOnline, setIsOnline] = useState(true);
+    const [approvalStatus, setApprovalStatus] = useState<"PENDING" | "APPROVED" | "REJECTED">(
+        user?.approvalStatus || "APPROVED"
+    );
+    const [rejectionReason, setRejectionReason] = useState<string | null>(
+        user?.rejectionReason || null
+    );
+    const [isOnline, setIsOnline] = useState(user?.approvalStatus === "APPROVED" || !user?.approvalStatus);
     const [earningsPeriod, setEarningsPeriod] = useState<"TODAY" | "WEEKLY">("TODAY");
     const [myCoords, setMyCoords] = useState<{ lat: number; lng: number } | null>(null);
     const [gpsBroadcasting, setGpsBroadcasting] = useState(false);
@@ -246,6 +251,17 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     if (data?.id && isMounted) {
                         setDriverProfileId(data.id);
                     }
+                    const appStatus = data?.approvalStatus || "APPROVED";
+                    if (isMounted) {
+                        setApprovalStatus(appStatus);
+                        if (data?.rejectionReason) setRejectionReason(data.rejectionReason);
+                        if (appStatus !== "APPROVED") {
+                            setIsOnline(false);
+                        } else if (data?.isOnline) {
+                            setIsOnline(true);
+                        }
+                    }
+
                     if (data?.user?.name && isMounted) {
                         setCurrentUser((prev: any) => {
                             const updated = {
@@ -254,6 +270,8 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 name: data.user.name,
                                 phone: data.user.phone || prev?.phone,
                                 email: data.user.email || prev?.email,
+                                approvalStatus: appStatus,
+                                rejectionReason: data.rejectionReason || null,
                             };
                             try {
                                 localStorage.setItem("user", JSON.stringify(updated));
@@ -261,16 +279,19 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                             return updated;
                         });
                     }
+
+                    // Only mark active/online in database if approved by administrator
+                    if (appStatus === "APPROVED") {
+                        fetch("/api/driver/profile", {
+                            method: "PATCH",
+                            headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ isOnline: true })
+                        }).catch(() => {});
+                    }
                 }
-                // Ensure driver profile is marked active/online in database
-                fetch("/api/driver/profile", {
-                    method: "PATCH",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`
-                    },
-                    body: JSON.stringify({ isOnline: true })
-                }).catch(() => {});
             } catch (err) {
                 console.error("Failed to sync driver profile:", err);
             }
@@ -299,9 +320,9 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
         };
     }, []);
 
-    // Real-Time SSE Stream for Incoming Ride Offers
+    // ─── Real-Time SSE: Approval Status Updates + Ride Offers ───────────────
     useEffect(() => {
-        if (!user || !isOnline) return;
+        if (!user) return;
 
         const sse = new EventSource("/api/rides/stream");
 
@@ -309,13 +330,58 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             try {
                 const payload = JSON.parse(event.data);
 
+                // ── Admin approved / rejected this driver ──
+                if (payload.type === "DRIVER_APPROVAL_UPDATED") {
+                    const isForMe =
+                        payload.data?.userId === user.id ||
+                        payload.driverId === user.driverProfileId ||
+                        payload.driverId === driverProfileId;
+
+                    if (isForMe) {
+                        const newStatus = payload.data?.approvalStatus;
+                        const reason = payload.data?.rejectionReason || null;
+                        if (newStatus) {
+                            setApprovalStatus(newStatus);
+                            if (reason) setRejectionReason(reason);
+                            // Reflect in localStorage so next login is accurate
+                            try {
+                                const stored = localStorage.getItem("user");
+                                if (stored) {
+                                    const parsed = JSON.parse(stored);
+                                    localStorage.setItem("user", JSON.stringify({ ...parsed, approvalStatus: newStatus, rejectionReason: reason }));
+                                }
+                            } catch {}
+                            if (newStatus !== "APPROVED") {
+                                setIsOnline(false);
+                            }
+                            // System notification
+                            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+                                new Notification(
+                                    newStatus === "APPROVED"
+                                        ? "✅ AfriCab: Application Approved!"
+                                        : "❌ AfriCab: Application Update",
+                                    {
+                                        body: payload.data?.message || (newStatus === "APPROVED"
+                                            ? "You are now authorized to go online and accept rides."
+                                            : `Your application was ${newStatus.toLowerCase()}.`),
+                                        icon: "/favicon.ico",
+                                    }
+                                );
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                // ── Incoming ride offers (only if online and approved) ──
+                if (!isOnline || approvalStatus !== "APPROVED") return;
+
                 if (payload.type === "RIDE_OFFER_RECEIVED" || payload.type === "RIDE_REQUESTED") {
                     const offerData = payload.data?.ride || payload.data;
                     const targetDriverId = payload.driverId;
 
-                    // Match if offered to this driver or general broadcast
-                    const isTargetDriver = !targetDriverId || 
-                        targetDriverId === user.id || 
+                    const isTargetDriver = !targetDriverId ||
+                        targetDriverId === user.id ||
                         targetDriverId === user.driverProfileId ||
                         targetDriverId === driverProfileId ||
                         targetDriverId === currentUser?.driverProfileId;
@@ -323,7 +389,6 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     if (isTargetDriver && !activeRide) {
                         playChimeSound();
 
-                        // System Web Notification if page is backgrounded / minimized
                         if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
                             new Notification("🚖 New AfriCab Ride Request!", {
                                 body: `Pickup: ${offerData.originAddress} • Fare: $${Number(offerData.fare || 5).toFixed(2)}`,
@@ -342,7 +407,6 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                             countdown: 45,
                         });
 
-                        // Start countdown
                         if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
                         let secondsLeft = 45;
                         countdownTimerRef.current = setInterval(() => {
@@ -356,7 +420,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         }, 1000);
                     }
                 } else if (payload.type === "RIDE_ACCEPTED") {
-                    const isForMe = payload.driverId === driverProfileId || 
+                    const isForMe = payload.driverId === driverProfileId ||
                         payload.driverId === user.id ||
                         payload.data?.driverId === driverProfileId ||
                         payload.data?.driver?.userId === user.id;
@@ -366,7 +430,6 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         setIncomingOffer(null);
                         if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
                     } else if (incomingOfferRef.current?.rideId === payload.rideId) {
-                        // Another driver accepted
                         setIncomingOffer(null);
                         if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
                     }
@@ -383,7 +446,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             sse.close();
             if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
         };
-    }, [user, isOnline, playChimeSound, activeRide, driverProfileId, currentUser]);
+    }, [user, isOnline, approvalStatus, playChimeSound, activeRide, driverProfileId, currentUser]);
 
     const fetchRides = useCallback(async (userId: string) => {
         try {
@@ -611,12 +674,21 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     }, []);
 
     const toggleStatus = async () => {
+        // Block going online if not approved — inform driver clearly
+        if (!isOnline && approvalStatus !== "APPROVED") {
+            const msg = approvalStatus === "PENDING"
+                ? "Your registration is currently pending administrator review. You cannot go online until your account is approved."
+                : `Your application was rejected${rejectionReason ? `: "${rejectionReason}"` : "."} Please contact support for assistance.`;
+            alert(msg);
+            return;
+        }
+
         const newStatus = !isOnline;
         setIsOnline(newStatus);
         const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
         if (token) {
             try {
-                await fetch("/api/driver/profile", {
+                const res = await fetch("/api/driver/profile", {
                     method: "PATCH",
                     headers: {
                         "Content-Type": "application/json",
@@ -624,10 +696,20 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     },
                     body: JSON.stringify({ isOnline: newStatus })
                 });
+
+                // Backend 403 = driver not approved — revert and inform
+                if (res.status === 403) {
+                    const data = await res.json().catch(() => ({}));
+                    setIsOnline(false);
+                    if (data?.approvalStatus) setApprovalStatus(data.approvalStatus);
+                    if (data?.rejectionReason) setRejectionReason(data.rejectionReason);
+                    const backendMsg = data?.error || "You are not authorized to go online at this time.";
+                    alert(backendMsg);
+                    return;
+                }
             } catch {}
         }
         if (newStatus) {
-            // Start GPS broadcasting when going online
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition((pos) => {
                     setMyCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
@@ -635,7 +717,6 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 }, () => {}, { enableHighAccuracy: true });
             }
         } else {
-            // Stop broadcasting when going offline
             if (gpsIntervalRef.current) {
                 clearInterval(gpsIntervalRef.current);
                 gpsIntervalRef.current = null;
@@ -726,6 +807,51 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     </div>
                 </div>
             </div>
+
+            {/* ─── Approval Status Banner (PENDING / REJECTED) ────────────────────── */}
+            {approvalStatus === "PENDING" && (
+                <div className="bg-amber-400 text-amber-950 px-4 py-4 border-b-2 border-amber-500 shadow-inner">
+                    <div className="container mx-auto max-w-6xl flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="flex items-start gap-3 text-left">
+                            <div className="w-9 h-9 bg-amber-500 rounded-xl flex items-center justify-center shrink-0">
+                                <ShieldAlert size={18} className="text-amber-950" />
+                            </div>
+                            <div>
+                                <p className="text-xs font-black uppercase tracking-wider mb-0.5">Account Under Review</p>
+                                <p className="text-[11px] font-semibold leading-relaxed">
+                                    Your driver registration is <strong>pending administrator approval</strong>. You cannot go online or receive ride requests until your account is reviewed and approved. You will be notified once a decision is made.
+                                </p>
+                            </div>
+                        </div>
+                        <span className="shrink-0 px-4 py-1.5 bg-amber-500 border border-amber-600 text-amber-950 text-[10px] font-black uppercase tracking-widest rounded-full animate-pulse whitespace-nowrap">
+                            Pending Review
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            {approvalStatus === "REJECTED" && (
+                <div className="bg-red-600 text-white px-4 py-4 border-b-2 border-red-700 shadow-inner">
+                    <div className="container mx-auto max-w-6xl flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="flex items-start gap-3 text-left">
+                            <div className="w-9 h-9 bg-red-700 rounded-xl flex items-center justify-center shrink-0">
+                                <ShieldAlert size={18} className="text-white" />
+                            </div>
+                            <div>
+                                <p className="text-xs font-black uppercase tracking-wider mb-0.5">Application Rejected</p>
+                                <p className="text-[11px] font-semibold leading-relaxed">
+                                    Your driver application has been <strong>rejected</strong> by the system administrator.
+                                    {rejectionReason && <span> Reason: <em>"{rejectionReason}"</em>.</span>}
+                                    {" "}Please contact AfriCab support for further assistance.
+                                </p>
+                            </div>
+                        </div>
+                        <span className="shrink-0 px-4 py-1.5 bg-red-700 border border-red-800 text-white text-[10px] font-black uppercase tracking-widest rounded-full whitespace-nowrap">
+                            Access Restricted
+                        </span>
+                    </div>
+                </div>
+            )}
 
             {/* Temporary Password Alert Banner */}
             {currentUser?.forcePasswordChange && (
@@ -1288,6 +1414,34 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 </button>
                                             )}
                                         </div>
+                                    </div>
+                                </div>
+                            ) : approvalStatus !== "APPROVED" ? (
+                                // Approval-blocked state
+                                <div className={`p-10 rounded-3xl border-2 text-center flex flex-col items-center justify-center space-y-4 ${
+                                    approvalStatus === "PENDING"
+                                        ? "bg-amber-50 border-amber-200"
+                                        : "bg-red-50 border-red-200"
+                                }`}>
+                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${
+                                        approvalStatus === "PENDING" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                                    }`}>
+                                        <ShieldAlert size={32} />
+                                    </div>
+                                    <div className="space-y-2 max-w-sm">
+                                        <h3 className={`text-lg font-black ${
+                                            approvalStatus === "PENDING" ? "text-amber-900" : "text-red-900"
+                                        }`}>
+                                            {approvalStatus === "PENDING" ? "Awaiting Admin Approval" : "Account Restricted"}
+                                        </h3>
+                                        <p className={`text-xs leading-relaxed font-medium ${
+                                            approvalStatus === "PENDING" ? "text-amber-700" : "text-red-700"
+                                        }`}>
+                                            {approvalStatus === "PENDING"
+                                                ? "Your registration is currently under review. You will be notified and can start accepting rides once an administrator approves your account."
+                                                : `Your application was rejected${rejectionReason ? `: "${rejectionReason}"` : "."} Please contact AfriCab support for assistance.`
+                                            }
+                                        </p>
                                     </div>
                                 </div>
                             ) : availableRides.length > 0 && isOnline ? (

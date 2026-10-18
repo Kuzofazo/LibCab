@@ -17,13 +17,27 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Invalid coordinates" }, { status: 400 });
         }
 
+        // Verify approval status before activating or marking driver online
+        const existingProfile = await prisma.driverProfile.findUnique({
+            where: { userId: user.userId },
+            select: { id: true, approvalStatus: true }
+        });
+
+        if (existingProfile && existingProfile.approvalStatus && existingProfile.approvalStatus !== "APPROVED") {
+            return NextResponse.json({ 
+                error: "Your driver account is pending review or unapproved. Cannot go online.", 
+                code: "DRIVER_NOT_APPROVED",
+                approvalStatus: existingProfile.approvalStatus
+            }, { status: 403 });
+        }
+
         // Upsert DriverProfile with IMEI anchor & live telemetry
         const updatedProfile = await prisma.driverProfile.upsert({
             where: { userId: user.userId },
             update: {
                 currentLat: lat,
                 currentLng: lng,
-                isOnline: true,
+                isOnline: existingProfile?.approvalStatus === "APPROVED",
                 speed: parseFloat(speed) || 0,
                 heading: parseFloat(heading) || 0,
                 batteryLevel: parseInt(batteryLevel) || 100,

@@ -66,6 +66,26 @@ export async function PATCH(req: Request) {
         const body = await req.json();
         const { isOnline, vehicleType, vehicleModel, vehicleColor, licensePlate } = body;
 
+        // If driver is attempting to go online, verify approval status
+        if (isOnline === true) {
+            const currentProfile = await prisma.driverProfile.findUnique({
+                where: { userId: payload.userId },
+                select: { approvalStatus: true, rejectionReason: true }
+            });
+
+            if (currentProfile && currentProfile.approvalStatus && currentProfile.approvalStatus !== "APPROVED") {
+                const message = currentProfile.approvalStatus === "PENDING"
+                    ? "Your driver registration is currently pending review. You cannot go online until an administrator approves your account."
+                    : `Your driver application was rejected${currentProfile.rejectionReason ? `: ${currentProfile.rejectionReason}` : "."}`;
+                return NextResponse.json({ 
+                    error: message, 
+                    code: "DRIVER_NOT_APPROVED",
+                    approvalStatus: currentProfile.approvalStatus,
+                    rejectionReason: currentProfile.rejectionReason
+                }, { status: 403 });
+            }
+        }
+
         const updatedProfile = await prisma.driverProfile.update({
             where: { userId: payload.userId },
             data: {

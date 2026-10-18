@@ -27,23 +27,43 @@ export async function POST(req: Request) {
         }
 
         let driverProfileId = user.driverProfile?.id;
+        let driverApprovalStatus = user.driverProfile?.approvalStatus || "APPROVED";
+        let driverRejectionReason = user.driverProfile?.rejectionReason || null;
+
         if (user.role === "DRIVER") {
+            const { ensureDriverApprovalSchema } = await import("@/lib/driverApprovalDb");
+            await ensureDriverApprovalSchema();
+
             if (!user.driverProfile) {
                 const newProfile = await prisma.driverProfile.create({
                     data: {
                         userId: user.id,
-                        isOnline: true,
+                        isOnline: false,
+                        approvalStatus: "PENDING",
                         vehicleType: "Car",
                         vehicleModel: "Toyota Sedan",
                         licensePlate: "LB-CAB-101",
                     }
                 });
                 driverProfileId = newProfile.id;
-            } else if (!user.driverProfile.isOnline) {
-                await prisma.driverProfile.update({
-                    where: { id: user.driverProfile.id },
-                    data: { isOnline: true },
-                });
+                driverApprovalStatus = "PENDING";
+            } else {
+                driverApprovalStatus = user.driverProfile.approvalStatus || "APPROVED";
+                driverRejectionReason = user.driverProfile.rejectionReason || null;
+
+                // Only set online if already approved
+                if (driverApprovalStatus === "APPROVED" && !user.driverProfile.isOnline) {
+                    await prisma.driverProfile.update({
+                        where: { id: user.driverProfile.id },
+                        data: { isOnline: true },
+                    });
+                } else if (driverApprovalStatus !== "APPROVED" && user.driverProfile.isOnline) {
+                    // Force offline if not approved
+                    await prisma.driverProfile.update({
+                        where: { id: user.driverProfile.id },
+                        data: { isOnline: false },
+                    });
+                }
             }
         }
 
@@ -72,6 +92,8 @@ export async function POST(req: Request) {
                 name: user.name, 
                 role: user.role,
                 driverProfileId: driverProfileId || undefined,
+                approvalStatus: user.role === "DRIVER" ? driverApprovalStatus : undefined,
+                rejectionReason: user.role === "DRIVER" ? driverRejectionReason : undefined,
                 forcePasswordChange: user.forcePasswordChange
             },
         });

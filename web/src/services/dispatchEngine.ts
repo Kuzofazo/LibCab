@@ -44,10 +44,11 @@ export class DispatchEngine {
         maxRadiusKm: number = DispatchEngine.DEFAULT_SERVICE_RADIUS_KM
     ): Promise<MatchedDriver[]> {
         try {
-            // 1. Fetch drivers that are online and not currently assigned to an active trip
+            // 1. Fetch drivers that are online, approved, and not currently assigned to an active trip
             const availableDrivers = await prisma.driverProfile.findMany({
                 where: {
                     isOnline: true,
+                    approvalStatus: "APPROVED",
                     currentLat: { not: null },
                     currentLng: { not: null },
                     // Driver must not have an active ride in progress
@@ -269,6 +270,14 @@ export class DispatchEngine {
                     success: false,
                     code: "NOT_FOUND",
                     message: "Driver profile not found.",
+                };
+            }
+
+            if (driver.approvalStatus && driver.approvalStatus !== "APPROVED") {
+                return {
+                    success: false,
+                    code: "DRIVER_UNAVAILABLE",
+                    message: "Driver account is pending review or not approved.",
                 };
             }
 

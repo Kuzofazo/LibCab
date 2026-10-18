@@ -184,6 +184,10 @@ model DriverProfile {
   vehicleColor String?
   licensePlate String?
   driverLicense String?
+  approvalStatus String?  @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectionReason String?
+  reviewedAt     DateTime?
+  reviewedBy     String?
   imei         String?  @unique // Phone IMEI hardware anchor
   deviceId     String?  // Device Identifier
   pushToken    String?  // Expo Push Token or FCM token
