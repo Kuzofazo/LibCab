@@ -132,6 +132,18 @@ export const metadata: Metadata = {
     // yandex: "REPLACE_WITH_YANDEX_CODE",
   },
 
+  // ─── Icons / Favicon ──────────────────────────────────────────────────────
+  icons: {
+    icon: [
+      { url: "/favicon.png", type: "image/png" },
+      { url: "/icon.png", type: "image/png", sizes: "512x512" },
+    ],
+    apple: [
+      { url: "/favicon.png", sizes: "180x180", type: "image/png" },
+    ],
+    shortcut: "/favicon.png",
+  },
+
   // ─── Other ────────────────────────────────────────────────────────────────
   other: {
     // Help AI search engines (Perplexity, ChatGPT, Gemini) understand the app
