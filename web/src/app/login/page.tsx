@@ -11,6 +11,7 @@ export default function LoginPage() {
     const router = useRouter();
     const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [errorMessage, setErrorMessage] = useState("");
     const [formData, setFormData] = useState({
         email: "",
         password: "",
@@ -46,9 +47,12 @@ export default function LoginPage() {
                     router.push("/");
                 }
             } else {
-                alert(data.error || "Login failed");
+                const msg = data.error || "Login failed";
+                setErrorMessage(msg);
+                alert(msg);
             }
         } catch (error) {
+            setErrorMessage("An unexpected network error occurred. Please try again.");
             alert("An error occurred. Please try again.");
         } finally {
             setIsLoading(false);
@@ -83,7 +87,13 @@ export default function LoginPage() {
 
             <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
                 <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-gray-100">
-                    <form className="space-y-6" onSubmit={handleSubmit}>
+                    {errorMessage && (
+                        <div className="mb-5 p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                            <span>{errorMessage}</span>
+                        </div>
+                    )}
+                    <form className="space-y-6" onSubmit={(e) => { setErrorMessage(""); handleSubmit(e); }}>
                         <div>
                             <label
                                 htmlFor="email"

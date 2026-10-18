@@ -34,7 +34,7 @@ export async function GET() {
         memoryCache.set(RECENT_RIDES_KEY, rides, 15);
         return NextResponse.json(rides);
     } catch (error) {
-        console.error("Recent rides error:", error);
-        return NextResponse.json({ error: "Failed to fetch recent rides" }, { status: 500 });
+        console.error("Recent rides error (using fallback):", error);
+        return NextResponse.json([]);
     }
 }
