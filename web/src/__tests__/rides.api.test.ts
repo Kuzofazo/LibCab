@@ -39,7 +39,7 @@ describe('Rides API', () => {
     describe('GET /api/rides', () => {
         it('should return 401 if unauthorized', async () => {
             vi.mocked(verifyJWT).mockResolvedValue(null);
-            const req = new Request('http://localhost:3000/api/rides') as any;
+            const req = new Request('http://localhost:3000/api/rides');
             const response = await GET(req);
             expect(response.status).toBe(401);
         });
@@ -48,7 +48,7 @@ describe('Rides API', () => {
             vi.mocked(verifyJWT).mockResolvedValue({ userId: '1', email: 'admin@test.com', role: 'ADMIN' });
             vi.mocked(prisma.ride.findMany).mockResolvedValue([{ id: 'ride-1' }] as unknown as Awaited<ReturnType<typeof prisma.ride.findMany>>);
             
-            const req = new Request('http://localhost:3000/api/rides') as any;
+            const req = new Request('http://localhost:3000/api/rides');
             const response = await GET(req);
             const data = await response.json();
             
