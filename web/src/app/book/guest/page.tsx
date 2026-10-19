@@ -533,7 +533,7 @@ function GuestBookingContent() {
                                             phone,
                                             pickup: trip.pickup,
                                             destination: trip.destination,
-                                            rideCategory: category === "VIP" ? "VIP" : category === "Comfort" ? "Comfort" : "Standard"
+                                            rideCategory: trip.category === "VIP" ? "VIP" : trip.category === "Comfort" ? "Comfort" : "Standard"
                                         })}
                                         className="px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#1ebd5b] text-white font-black text-xs shrink-0 shadow-sm transition-all active:scale-95 cursor-pointer"
                                     >

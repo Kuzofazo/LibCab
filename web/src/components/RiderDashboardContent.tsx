@@ -24,7 +24,16 @@ import {
     Compass,
     Radio,
     ShieldAlert,
-    Activity
+    Activity,
+    Tag,
+    Calendar,
+    Home,
+    Briefcase,
+    Trash2,
+    ArrowUpDown,
+    CheckCircle2,
+    Share,
+    Square
 } from "lucide-react";
 import { formatDual } from "@/utils/currency";
 import dynamic from 'next/dynamic';
@@ -33,6 +42,10 @@ import { cn } from "@/lib/utils";
 import { useMapProvider } from "@/components/map/MapProvider";
 import { NearbyDriverResult } from "@/lib/geo";
 import ShareModal from "@/components/ShareModal";
+import SavedPlacesModal, { SavedPlaceItem } from "@/components/SavedPlacesModal";
+import ScheduleRideModal from "@/components/ScheduleRideModal";
+import RiderHistoryModal from "@/components/RiderHistoryModal";
+import LostItemReportModal from "@/components/LostItemReportModal";
 
 // Shallow equality check for ride objects
 function rideChanged(prev: any, next: any): boolean {
@@ -116,6 +129,34 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         { sender: "driver", text: "Hello! I am on my way to your pickup location.", time: "Just now" }
     ]);
     const [chatInput, setChatInput] = useState("");
+
+    // Advanced Features State
+    const [intermediateStops, setIntermediateStops] = useState<Array<{ address: string; lat: number; lng: number }>>([]);
+    const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+    const [historyDefaultTab, setHistoryDefaultTab] = useState<"HISTORY" | "SCHEDULED" | "LOST_ITEMS">("HISTORY");
+    const [isSavedPlacesModalOpen, setIsSavedPlacesModalOpen] = useState(false);
+    const [savedPlacesTarget, setSavedPlacesTarget] = useState<"pickup" | "destination">("destination");
+    const [isLostItemModalOpen, setIsLostItemModalOpen] = useState(false);
+    const [lostItemRide, setLostItemRide] = useState<any | null>(null);
+
+    // Promo Code State
+    const [promoInput, setPromoInput] = useState("");
+    const [appliedPromo, setAppliedPromo] = useState<{
+        code: string;
+        discountAmount: number;
+        discountValue: number;
+        discountType: string;
+        message: string;
+    } | null>(null);
+    const [promoLoading, setPromoLoading] = useState(false);
+    const [promoError, setPromoError] = useState<string | null>(null);
+
+    // Mid-Trip Stop State
+    const [isMidTripAddOpen, setIsMidTripAddOpen] = useState(false);
+    const [midTripStopAddress, setMidTripStopAddress] = useState("");
+    const [addingMidTripStop, setAddingMidTripStop] = useState(false);
+    const [stoppingShare, setStoppingShare] = useState(false);
 
     // Nearby Driver Discovery State
     const [nearbyDrivers, setNearbyDrivers] = useState<NearbyDriverResult[]>([]);
@@ -342,6 +383,136 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         }
     }, [user, fetchRides, activeRide?.status]);
 
+    const handleSelectSavedPlace = (place: SavedPlaceItem, target: "pickup" | "destination") => {
+        if (target === "pickup") {
+            setBookingData(prev => ({ ...prev, pickup: place.address }));
+        } else {
+            setBookingData(prev => ({ ...prev, destination: place.address }));
+        }
+    };
+
+    const handleAddIntermediateStop = () => {
+        if (intermediateStops.length >= 3) {
+            alert("Maximum of 3 intermediate stops allowed per ride.");
+            return;
+        }
+        setIntermediateStops(prev => [...prev, { address: "", lat: 6.3100, lng: -10.8000 }]);
+    };
+
+    const handleRemoveIntermediateStop = (idx: number) => {
+        setIntermediateStops(prev => prev.filter((_, i) => i !== idx));
+    };
+
+    const handleUpdateIntermediateStop = (idx: number, address: string) => {
+        setIntermediateStops(prev => {
+            const next = [...prev];
+            next[idx] = { ...next[idx], address };
+            return next;
+        });
+    };
+
+    const handleApplyPromo = async () => {
+        if (!promoInput.trim()) return;
+        setPromoLoading(true);
+        setPromoError(null);
+        try {
+            const baseSelectedFare = (tierPrices[selectedTier] || 27.00) + (intermediateStops.length * 3.00);
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const res = await fetch("/api/promos/validate", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                    code: promoInput.trim(),
+                    fare: baseSelectedFare,
+                    rideCategory: selectedTier,
+                    phone: bookingData.paymentPhone || user?.phone
+                })
+            });
+            const data = await res.json();
+            if (data.valid) {
+                setAppliedPromo({
+                    code: data.code,
+                    discountAmount: data.discountAmount,
+                    discountValue: data.discountValue,
+                    discountType: data.discountType,
+                    message: data.message
+                });
+                setPromoError(null);
+            } else {
+                setPromoError(data.error || "Invalid promo code.");
+            }
+        } catch (err: any) {
+            setPromoError("Failed to validate promo code. Please try again.");
+        } finally {
+            setPromoLoading(false);
+        }
+    };
+
+    const handleRemovePromo = () => {
+        setAppliedPromo(null);
+        setPromoInput("");
+        setPromoError(null);
+    };
+
+    const handleAddMidTripStop = async () => {
+        if (!activeRide || !midTripStopAddress.trim()) return;
+        setAddingMidTripStop(true);
+        try {
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const res = await fetch(`/api/rides/${activeRide.id}/stops`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                    address: midTripStopAddress.trim(),
+                    lat: 6.3100,
+                    lng: -10.8000
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setActiveRide(data.ride);
+                setIsMidTripAddOpen(false);
+                setMidTripStopAddress("");
+            } else {
+                const err = await res.json();
+                alert(err.error || "Failed to add stop mid-trip");
+            }
+        } catch (e: any) {
+            alert(e.message || "Failed to add stop");
+        } finally {
+            setAddingMidTripStop(false);
+        }
+    };
+
+    const handleStopSharing = async () => {
+        if (!activeRide) return;
+        if (!confirm("Stop live trip sharing? Link holders will no longer be able to track this ride.")) return;
+        setStoppingShare(true);
+        try {
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const res = await fetch(`/api/rides/${activeRide.id}/share`, {
+                method: "DELETE",
+                headers: {
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                }
+            });
+            if (res.ok) {
+                setActiveRide((prev: any) => ({ ...prev, isSharingActive: false }));
+                alert("Live trip sharing has been stopped.");
+            }
+        } catch (e) {
+            console.error("Stop sharing error:", e);
+        } finally {
+            setStoppingShare(false);
+        }
+    };
+
     const handleBookRide = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
         if (!bookingData.pickup || !bookingData.destination) {
@@ -355,7 +526,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             const pickupCoords = await geocodeAddress(bookingData.pickup) || { lat: 6.3156, lng: -10.8074 };
             const destCoords = await geocodeAddress(bookingData.destination) || { lat: 6.3000, lng: -10.7900 };
 
-            const selectedFare = tierPrices[selectedTier] || 27.00;
+            const baseSelectedFare = (tierPrices[selectedTier] || 27.00) + (intermediateStops.length * 3.00);
+            const finalFare = Math.max(0, baseSelectedFare - (appliedPromo?.discountAmount || 0));
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
             const res = await fetch("/api/rides", {
@@ -377,7 +549,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                     paymentMethod: bookingData.paymentMethod,
                     customerPaymentPhone: bookingData.paymentPhone || user?.phone || "+231 88 123 4567",
                     driverId: selectedDriver ? selectedDriver.id : undefined,
-                    fare: selectedFare
+                    fare: finalFare,
+                    stops: intermediateStops.filter(s => s.address.trim().length > 0),
+                    promoCode: appliedPromo?.code,
+                    discountAmount: appliedPromo?.discountAmount
                 })
             });
 
@@ -386,7 +561,6 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 setActiveRide(newRide);
             } else {
                 const error = await res.json();
-                // If unauthorized or error, try guest endpoint fallback so user request isn't blocked
                 try {
                     const guestRes = await fetch("/api/rides/guest", {
                         method: "POST",
@@ -404,7 +578,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                             guestName: user?.name || "Rider",
                             phone: bookingData.paymentPhone || user?.phone || "0880000000",
                             driverId: selectedDriver ? selectedDriver.id : undefined,
-                            fare: selectedFare
+                            fare: finalFare
                         })
                     });
                     if (guestRes.ok) {
@@ -563,7 +737,27 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setHistoryDefaultTab("HISTORY");
+                            setIsHistoryModalOpen(true);
+                        }}
+                        className="text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-colors"
+                    >
+                        📜 Trips &amp; History
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setSavedPlacesTarget("destination");
+                            setIsSavedPlacesModalOpen(true);
+                        }}
+                        className="text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-colors"
+                    >
+                        📍 Saved Places
+                    </button>
                     <span className="text-xs font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-full flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                         {nearbyDrivers.length > 0 ? `${nearbyDrivers.length} Cars Nearby` : "Monrovia Fleet Active"}
@@ -612,6 +806,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                 onClose={() => setActiveRide(null)}
                                 onSubmitRating={handleSubmitRating}
                                 ratingSubmitted={ratingSubmitted}
+                                onReportLostItem={(r) => {
+                                    setLostItemRide(r);
+                                    setIsLostItemModalOpen(true);
+                                }}
                             />
                         </div>
                     </div>
@@ -807,8 +1005,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
                             <div className="border-t border-slate-100" />
 
-                            {/* Trip Route Details */}
-                            <div className="space-y-4">
+                            {/* Trip Route Details & Stops */}
+                            <div className="space-y-3">
                                 {/* Pickup */}
                                 <div className="flex items-center justify-between gap-3">
                                     <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -820,10 +1018,72 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                             <p className="text-sm font-bold text-slate-900 truncate">{activeRide.originAddress}</p>
                                         </div>
                                     </div>
-                                    <button type="button" className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 transition-colors">
-                                        <Edit2 size={14} />
-                                    </button>
                                 </div>
+
+                                {/* Intermediate Stops (Multi-Stop View) */}
+                                {activeRide.stops && activeRide.stops.map((st: any) => (
+                                    <div key={st.id} className="flex items-center justify-between gap-3 pl-3 border-l-2 border-dashed border-slate-200">
+                                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                                            <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-black flex items-center justify-center shrink-0 mt-0.5">
+                                                {st.sequence}
+                                            </span>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Stop {st.sequence}</span>
+                                                    <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                                                        st.status === "COMPLETED" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
+                                                    }`}>
+                                                        {st.status}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs font-bold text-slate-800 truncate">{st.address}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Add Stop Mid-Trip Button */}
+                                {activeRide.status !== "COMPLETED" && activeRide.status !== "CANCELLED" && (
+                                    <div className="pt-1">
+                                        {isMidTripAddOpen ? (
+                                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[11px] font-bold text-slate-700">Add Intermediate Stop (+ $2.50)</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsMidTripAddOpen(false)}
+                                                        className="text-[11px] text-slate-400 hover:text-slate-600"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                                <input
+                                                    type="text"
+                                                    value={midTripStopAddress}
+                                                    onChange={(e) => setMidTripStopAddress(e.target.value)}
+                                                    placeholder="Enter stop address (e.g. Total Gas Station, 12th St)..."
+                                                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none text-slate-900"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    disabled={addingMidTripStop || !midTripStopAddress.trim()}
+                                                    onClick={handleAddMidTripStop}
+                                                    className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                                                >
+                                                    {addingMidTripStop ? "Adding Stop..." : "Confirm & Update Driver Route"}
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsMidTripAddOpen(true)}
+                                                className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors border border-dashed border-slate-300"
+                                            >
+                                                <Plus size={13} /> Add Stop Mid-Trip (+ $2.50)
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
 
                                 {/* Destination */}
                                 <div className="flex items-center justify-between gap-3">
@@ -832,13 +1092,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                             <Navigation size={15} className="text-slate-800" />
                                         </div>
                                         <div className="min-w-0 flex-1">
-                                            <span className="text-[11px] font-bold text-slate-400 uppercase block">Destination</span>
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase block">Final Destination</span>
                                             <p className="text-sm font-bold text-slate-900 truncate">{activeRide.destAddress}</p>
                                         </div>
                                     </div>
-                                    <button type="button" className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 transition-colors">
-                                        <Edit2 size={14} />
-                                    </button>
                                 </div>
                             </div>
 
@@ -847,9 +1104,9 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                             {/* Payment Method Row */}
                             <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
                                 <div>
-                                    <span className="text-[11px] font-bold text-slate-400 uppercase block">Payment Method</span>
+                                    <span className="text-[11px] font-bold text-slate-400 uppercase block">Payment &amp; Fare</span>
                                     <p className="text-sm font-black text-slate-900">
-                                        {activeRide.paymentMethod || "MTN MoMo"} • {activeRide.customerPaymentPhone || user?.phone || "**** 4568"}
+                                        {formatDual(activeRide.fare || 27.00)} • {activeRide.paymentMethod || "MTN MoMo"}
                                     </p>
                                 </div>
                                 <button type="button" className="w-9 h-9 rounded-xl bg-white border border-slate-200 text-slate-700 flex items-center justify-center shadow-sm">
@@ -857,14 +1114,27 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                 </button>
                             </div>
 
-                            {/* Share Live Route Button */}
-                            <button
-                                type="button"
-                                onClick={() => setShareModalOpen(true)}
-                                className="w-full py-3.5 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer active:scale-98"
-                            >
-                                <Share2 size={15} /> Share Live Route
-                            </button>
+                            {/* Share Live Route Row with Stop-Sharing option */}
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShareModalOpen(true)}
+                                    className="flex-1 py-3.5 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer active:scale-98"
+                                >
+                                    <Share2 size={15} /> Share Live Route
+                                </button>
+                                {activeRide.isSharingActive !== false && (
+                                    <button
+                                        type="button"
+                                        disabled={stoppingShare}
+                                        onClick={handleStopSharing}
+                                        title="Stop live trip sharing with link holders"
+                                        className="px-4 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-bold transition-all border border-slate-200"
+                                    >
+                                        {stoppingShare ? "Stopping..." : "Stop Sharing"}
+                                    </button>
+                                )}
+                            </div>
 
                             {/* Bottom Dual Action Buttons */}
                             <div className="flex gap-3 pt-1">
@@ -921,21 +1191,115 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                 ))}
                             </div>
 
-                            {/* Route Input Box (Pickup & Destination with ETA) */}
+                            {/* Schedule A Ride & Saved Places Quick Action Bar */}
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsScheduleModalOpen(true)}
+                                        className="flex-1 py-2.5 px-3 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                                    >
+                                        <Calendar size={14} className="text-amber-600" /> Schedule a Ride
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSavedPlacesTarget("destination");
+                                            setIsSavedPlacesModalOpen(true);
+                                        }}
+                                        className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl text-xs font-bold flex items-center gap-1.5 transition-all"
+                                    >
+                                        📍 Saved Places
+                                    </button>
+                                </div>
+
+                                {/* Quick Saved Place Shortcut Chips */}
+                                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                                    <span className="text-[10px] uppercase font-bold text-slate-400 shrink-0">Quick:</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setBookingData(prev => ({ ...prev, destination: "Broad Street, Monrovia (Work)" }))}
+                                        className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg font-bold text-slate-700 flex items-center gap-1 shrink-0"
+                                    >
+                                        💼 Work
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setBookingData(prev => ({ ...prev, destination: "Sinkor 24th Street (Home)" }))}
+                                        className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg font-bold text-slate-700 flex items-center gap-1 shrink-0"
+                                    >
+                                        🏠 Home
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setBookingData(prev => ({ ...prev, destination: "Roberts International Airport (ROB)" }));
+                                            setIsScheduleModalOpen(true);
+                                        }}
+                                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg font-bold text-blue-800 flex items-center gap-1 shrink-0"
+                                    >
+                                        ✈️ Airport
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Route Input Box (Pickup, Intermediate Multi-Stops & Destination) */}
                             <div className="bg-slate-50/90 rounded-2xl p-4 border border-slate-100 space-y-3">
                                 {/* Pickup */}
-                                <div className="flex items-center gap-3">
-                                    <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center shrink-0">
-                                        <MapPin size={14} />
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                        <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center shrink-0">
+                                            <MapPin size={14} />
+                                        </div>
+                                        <input 
+                                            type="text"
+                                            value={bookingData.pickup}
+                                            onChange={(e) => setBookingData({ ...bookingData, pickup: e.target.value })}
+                                            placeholder="Enter pickup location"
+                                            className="flex-1 bg-transparent font-bold text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                                        />
                                     </div>
-                                    <input 
-                                        type="text"
-                                        value={bookingData.pickup}
-                                        onChange={(e) => setBookingData({ ...bookingData, pickup: e.target.value })}
-                                        placeholder="Enter pickup location"
-                                        className="flex-1 bg-transparent font-bold text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSavedPlacesTarget("pickup");
+                                            setIsSavedPlacesModalOpen(true);
+                                        }}
+                                        className="text-[10px] font-bold text-slate-500 hover:text-slate-900 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-xs shrink-0"
+                                    >
+                                        Saved
+                                    </button>
                                 </div>
+
+                                {/* Intermediate Multi-Stops */}
+                                {intermediateStops.map((stop, idx) => (
+                                    <div key={idx} className="space-y-2">
+                                        <div className="ml-3 border-l-2 border-dashed border-blue-300 h-2" />
+                                        <div className="flex items-center justify-between gap-2 bg-blue-50/50 p-2 rounded-xl border border-blue-100">
+                                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-black text-[10px] flex items-center justify-center shrink-0">
+                                                    {idx + 1}
+                                                </span>
+                                                <input
+                                                    type="text"
+                                                    value={stop.address}
+                                                    onChange={(e) => handleUpdateIntermediateStop(idx, e.target.value)}
+                                                    placeholder={`Intermediate stop ${idx + 1}`}
+                                                    className="flex-1 bg-transparent font-bold text-xs text-slate-900 outline-none placeholder:text-blue-400"
+                                                />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRemoveIntermediateStop(idx)}
+                                                className="w-6 h-6 rounded-full bg-white text-slate-400 hover:text-rose-600 flex items-center justify-center shadow-xs"
+                                                title="Remove stop"
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
 
                                 <div className="ml-3 border-l-2 border-dashed border-slate-300 h-3" />
 
@@ -956,8 +1320,13 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                     
                                     <div className="flex items-center gap-2 shrink-0">
                                         <span className="text-xs font-bold text-slate-500">{routeData?.eta || "19 min"}</span>
-                                        <button type="button" className="w-8 h-8 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-800 flex items-center justify-center font-black">
-                                            +
+                                        <button
+                                            type="button"
+                                            onClick={handleAddIntermediateStop}
+                                            className="px-2.5 py-1 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-900 flex items-center gap-1 font-black text-xs"
+                                            title="Add intermediate destination or stop"
+                                        >
+                                            <Plus size={12} /> Add Stop
                                         </button>
                                     </div>
                                 </div>
@@ -1059,6 +1428,58 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                 </div>
                             </div>
 
+                            {/* Promo Code Input Field (Feature 6) */}
+                            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                                        <Tag size={13} className="text-amber-500" /> Have a Promo Code?
+                                    </label>
+                                    {appliedPromo && (
+                                        <button
+                                            type="button"
+                                            onClick={handleRemovePromo}
+                                            className="text-[10px] text-rose-600 font-bold hover:underline"
+                                        >
+                                            Remove
+                                        </button>
+                                    )}
+                                </div>
+
+                                {appliedPromo ? (
+                                    <div className="flex items-center justify-between p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs">
+                                        <div className="flex items-center gap-1.5 font-bold">
+                                            <CheckCircle2 size={15} className="text-emerald-600" />
+                                            <span>Code &apos;{appliedPromo.code}&apos; Applied (-${appliedPromo.discountAmount.toFixed(2)})</span>
+                                        </div>
+                                        <span className="font-black text-[11px] bg-emerald-600 text-white px-2 py-0.5 rounded-full">
+                                            SAVINGS
+                                        </span>
+                                    </div>
+                                ) : (
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={promoInput}
+                                            onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                                            placeholder="Enter discount code (e.g. MONROVIA10)"
+                                            className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-slate-900 text-slate-900 uppercase"
+                                        />
+                                        <button
+                                            type="button"
+                                            disabled={promoLoading || !promoInput.trim()}
+                                            onClick={handleApplyPromo}
+                                            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                                        >
+                                            {promoLoading ? "Checking..." : "Apply Code"}
+                                        </button>
+                                    </div>
+                                )}
+
+                                {promoError && (
+                                    <p className="text-[11px] text-rose-600 font-bold">{promoError}</p>
+                                )}
+                            </div>
+
                             {/* Payment Method Selector Row */}
                             <div className="p-3.5 bg-slate-100 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-slate-200/70 transition-colors">
                                 <div className="flex items-center gap-3">
@@ -1071,6 +1492,21 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                     </span>
                                 </div>
                                 <span className="text-slate-500 font-black text-sm">›</span>
+                            </div>
+
+                            {/* Total Fare Summary Display */}
+                            <div className="flex items-center justify-between px-2 pt-1 text-xs">
+                                <span className="font-bold text-slate-500">Estimated Total:</span>
+                                <div className="flex items-center gap-2">
+                                    {appliedPromo && (
+                                        <span className="line-through text-slate-400 font-bold text-xs">
+                                            ${((tierPrices[selectedTier] || 27) + (intermediateStops.length * 3)).toFixed(2)}
+                                        </span>
+                                    )}
+                                    <span className="text-lg font-black text-slate-950">
+                                        {formatDual(Math.max(0, (tierPrices[selectedTier] || 27) + (intermediateStops.length * 3) - (appliedPromo?.discountAmount || 0)))}
+                                    </span>
+                                </div>
                             </div>
 
                             {/* Bottom Dual Action: Golden Yellow 'Request' Button + Filter Button */}
@@ -1086,7 +1522,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                             <RefreshCw className="animate-spin" size={18} /> Requesting...
                                         </span>
                                     ) : (
-                                        "Request"
+                                        "Request Now"
                                     )}
                                 </button>
 
@@ -1160,7 +1596,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                     onClose={() => setShareModalOpen(false)}
                     title="Share Live Route"
                     description="Share live tracking with WhatsApp, Messenger, SMS, and more so loved ones can follow your ride."
-                    trackingUrl={typeof window !== "undefined" ? `${window.location.origin}/track/${activeRide.id}` : `/track/${activeRide.id}`}
+                    trackingUrl={typeof window !== "undefined" ? `${window.location.origin}/share/${activeRide.shareToken || activeRide.id}` : `/share/${activeRide.shareToken || activeRide.id}`}
                     rideDetails={{
                         pickup: activeRide.originAddress,
                         destination: activeRide.destAddress,
@@ -1169,6 +1605,70 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                         vehicleInfo: `${activeRide.driver?.vehicleColor || ""} ${activeRide.driver?.vehicleModel || ""}`.trim(),
                         licensePlate: activeRide.driver?.licensePlate,
                         eta: routeData?.eta
+                    }}
+                />
+            )}
+
+            {/* Advance Booking & Scheduling Modal */}
+            <ScheduleRideModal
+                isOpen={isScheduleModalOpen}
+                onClose={() => setIsScheduleModalOpen(false)}
+                bookingData={bookingData}
+                selectedTier={selectedTier}
+                estimatedFare={Math.max(0, (tierPrices[selectedTier] || 27) + (intermediateStops.length * 3) - (appliedPromo?.discountAmount || 0))}
+                stops={intermediateStops.filter(s => s.address.trim().length > 0)}
+                promoCode={appliedPromo?.code}
+                discountAmount={appliedPromo?.discountAmount}
+                onScheduledSuccess={() => {
+                    setIsScheduleModalOpen(false);
+                    setHistoryDefaultTab("SCHEDULED");
+                    setIsHistoryModalOpen(true);
+                }}
+            />
+
+            {/* Saved Places Modal */}
+            <SavedPlacesModal
+                isOpen={isSavedPlacesModalOpen}
+                onClose={() => setIsSavedPlacesModalOpen(false)}
+                onSelectPlace={handleSelectSavedPlace}
+                targetField={savedPlacesTarget}
+            />
+
+            {/* Rider History & Bookings Modal */}
+            <RiderHistoryModal
+                isOpen={isHistoryModalOpen}
+                onClose={() => setIsHistoryModalOpen(false)}
+                user={user}
+                onRebook={(origin, dest) => {
+                    setBookingData(prev => ({ ...prev, pickup: origin, destination: dest }));
+                }}
+            />
+
+            {/* Lost Item Recovery Report Modal */}
+            {lostItemRide && (
+                <LostItemReportModal
+                    isOpen={isLostItemModalOpen}
+                    onClose={() => {
+                        setIsLostItemModalOpen(false);
+                        setLostItemRide(null);
+                    }}
+                    rideId={lostItemRide.id}
+                    rideDetails={{
+                        bookingReference: lostItemRide.bookingReference,
+                        pickup: lostItemRide.originAddress,
+                        destination: lostItemRide.destAddress,
+                        driverName: lostItemRide.driver?.user?.name,
+                        vehicleInfo: lostItemRide.driver?.vehicleModel,
+                        licensePlate: lostItemRide.driver?.licensePlate,
+                        date: new Date(lostItemRide.createdAt).toLocaleDateString()
+                    }}
+                    userPhone={user?.phone}
+                    userName={user?.name}
+                    onSuccess={() => {
+                        setIsLostItemModalOpen(false);
+                        setLostItemRide(null);
+                        setHistoryDefaultTab("LOST_ITEMS");
+                        setIsHistoryModalOpen(true);
                     }}
                 />
             )}

@@ -21,6 +21,7 @@ export type RideEventType =
     | "WALLET_UPDATED"
     | "DRIVER_APPROVAL_UPDATED"
     | "NEW_DRIVER_SIGNUP"
+    | "SECURITY_INTRUSION_ALERT"
     | "SOS_ALERT";
 
 export interface RideEventPayload {
@@ -56,6 +57,17 @@ class RideStreamManager {
         if (event.driverId) {
             this.emitter.emit(`driver_${event.driverId}`, event);
         }
+    }
+
+    public broadcast(event: { type?: string; rideId?: string; driverId?: string; incident?: any; ride?: any; data?: any; timestamp?: string }) {
+        const payload: RideEventPayload = {
+            type: (event.type as RideEventType) || "RIDE_UPDATED",
+            rideId: event.rideId || event.ride?.id,
+            driverId: event.driverId,
+            data: event.incident || event.data || event.ride || event,
+            timestamp: event.timestamp || new Date().toISOString(),
+        };
+        this.publish(payload);
     }
 
     public subscribeAll(listener: (event: RideEventPayload) => void) {

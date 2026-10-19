@@ -20,22 +20,26 @@ import {
     Star,
     Building2,
     UserCheck,
+    CalendarClock,
+    Luggage,
     Wallet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const menuItems = [
     { icon: LayoutDashboard, label: "DASHBOARD", href: "/admin" },
+    { icon: CalendarClock, label: "SCHEDULED RIDES", href: "/admin/scheduled", isNewFeature: true },
     { icon: UserCheck, label: "DRIVER SIGN-UP", href: "/admin/driver-signups", isNewFeature: true },
     { icon: Wallet, label: "DRIVER WALLETS", href: "/admin/wallets", isNewFeature: true },
     { icon: Radio, label: "FLEET TRACKING", href: "/admin/fleet" },
     { icon: Building2, label: "COMPANIES", href: "/admin/companies" },
     { icon: Map, label: "DISPATCH", href: "/admin/dispatch" },
+    { icon: Luggage, label: "LOST ITEMS", href: "/admin/lost-items", isNewFeature: true },
     { icon: Star, label: "REVIEWS & QUALITY", href: "/admin/reviews" },
     { icon: Lightbulb, label: "INSIGHTS", href: "/admin/insights" },
     { icon: Users, label: "USERS", href: "/admin/users" },
     { icon: MapPin, label: "PRICING", href: "/admin/pricing" },
-    { icon: Ticket, label: "COUPONS", href: "/admin/coupons" },
+    { icon: Ticket, label: "COUPONS & PROMOS", href: "/admin/coupons" },
     { icon: CreditCard, label: "PAYMENTS", href: "/admin/payments" },
     { icon: Settings, label: "SETTINGS", href: "/admin/settings" },
 ];
@@ -48,6 +52,8 @@ export default function AdminSidebar() {
     const [showDownBtn, setShowDownBtn] = useState(false);
     const [pendingCount, setPendingCount] = useState<number>(0);
     const [ineligibleWallets, setIneligibleWallets] = useState<number>(0);
+    const [scheduledCount, setScheduledCount] = useState<number>(0);
+    const [lostItemsCount, setLostItemsCount] = useState<number>(0);
 
     useEffect(() => {
         const fetchPendingCount = async () => {
@@ -66,23 +72,39 @@ export default function AdminSidebar() {
             } catch {}
         };
 
-        const fetchWalletCount = async () => {
+        const fetchCounts = async () => {
             try {
                 const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
                 if (!token) return;
-                const res = await fetch("/api/admin/wallets?filter=INELIGIBLE", {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    setIneligibleWallets(data?.stats?.ineligibleDrivers ?? 0);
-                }
+
+                // Driver signups
+                fetch("/api/admin/driver-signups", { headers: { Authorization: `Bearer ${token}` } })
+                    .then(r => r.ok ? r.json() : null)
+                    .then(d => { if (d?.stats?.pending !== undefined) setPendingCount(d.stats.pending); })
+                    .catch(() => {});
+
+                // Wallets
+                fetch("/api/admin/wallets?filter=INELIGIBLE", { headers: { Authorization: `Bearer ${token}` } })
+                    .then(r => r.ok ? r.json() : null)
+                    .then(d => { setIneligibleWallets(d?.stats?.ineligibleDrivers ?? 0); })
+                    .catch(() => {});
+
+                // Scheduled rides
+                fetch("/api/rides/scheduled?status=CONFIRMED", { headers: { Authorization: `Bearer ${token}` } })
+                    .then(r => r.ok ? r.json() : null)
+                    .then(d => { if (Array.isArray(d)) setScheduledCount(d.length); })
+                    .catch(() => {});
+
+                // Lost items
+                fetch("/api/admin/lost-items?status=PENDING", { headers: { Authorization: `Bearer ${token}` } })
+                    .then(r => r.ok ? r.json() : null)
+                    .then(d => { if (d?.counts?.pending !== undefined) setLostItemsCount(d.counts.pending); })
+                    .catch(() => {});
             } catch {}
         };
 
-        fetchPendingCount();
-        fetchWalletCount();
-        const interval = setInterval(() => { fetchPendingCount(); fetchWalletCount(); }, 30000);
+        fetchCounts();
+        const interval = setInterval(fetchCounts, 30000);
         return () => clearInterval(interval);
     }, []);
 
@@ -207,6 +229,22 @@ export default function AdminSidebar() {
                                         isActive ? "bg-black text-amber-400" : "bg-amber-500 text-black shadow-lg shadow-amber-500/30"
                                     )}>
                                         {pendingCount}
+                                    </span>
+                                )}
+                                {item.href === "/admin/scheduled" && scheduledCount > 0 && (
+                                    <span className={cn(
+                                        "relative z-10 ml-auto px-2 py-0.5 text-[9px] font-black rounded-full transition-colors flex items-center justify-center",
+                                        isActive ? "bg-black text-blue-400" : "bg-blue-500 text-white shadow-lg shadow-blue-500/30"
+                                    )}>
+                                        {scheduledCount}
+                                    </span>
+                                )}
+                                {item.href === "/admin/lost-items" && lostItemsCount > 0 && (
+                                    <span className={cn(
+                                        "relative z-10 ml-auto px-2 py-0.5 text-[9px] font-black rounded-full transition-colors flex items-center justify-center animate-pulse",
+                                        isActive ? "bg-black text-purple-400" : "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
+                                    )}>
+                                        {lostItemsCount}
                                     </span>
                                 )}
                                 {item.href === "/admin/wallets" && ineligibleWallets > 0 && (

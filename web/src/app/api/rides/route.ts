@@ -56,6 +56,7 @@ export async function GET(req: Request) {
                         user: { select: { id: true, name: true, phone: true, email: true } }
                     }
                 },
+                stops: { orderBy: { sequence: "asc" } },
             },
             orderBy: { createdAt: "desc" },
             take: 100
@@ -100,7 +101,12 @@ export async function POST(req: Request) {
             customerPaymentPhone,
             driverPaymentPhone,
             driverId, // Optional directly selected driver from discovery
-            fare
+            fare,
+            isScheduled,
+            scheduledFor,
+            notes,
+            stops,
+            promoCode
         } = body;
 
         if ((!riderId && !guestPhone) || !originAddress || !destAddress) {
@@ -126,11 +132,15 @@ export async function POST(req: Request) {
             finalRiderId = guestUser.id;
         }
 
+        // Determine if scheduled
+        const isRideScheduled = Boolean(isScheduled && scheduledFor && new Date(scheduledFor).getTime() > Date.now() + 15 * 60 * 1000);
+        const scheduledDate = isRideScheduled ? new Date(scheduledFor) : null;
+
         // Resolve selected driver if provided
         let resolvedDriverProfileId: string | undefined = undefined;
-        let initialStatus = "REQUESTED";
+        let initialStatus = isRideScheduled ? "SCHEDULED" : "REQUESTED";
 
-        if (driverId) {
+        if (driverId && !isRideScheduled) {
             const driverProfile = await prisma.driverProfile.findFirst({
                 where: {
                     OR: [
@@ -145,6 +155,38 @@ export async function POST(req: Request) {
                 initialStatus = "ACCEPTED";
             }
         }
+
+        // Fare Calculation & Promo Code Application
+        let baseFare = fare !== undefined ? parseFloat(fare) : 25.0;
+        let discountAmount = 0;
+        let appliedCouponId: string | null = null;
+        let appliedPromoCode: string | null = null;
+
+        if (promoCode && typeof promoCode === "string" && promoCode.trim()) {
+            const normalized = promoCode.trim().toUpperCase();
+            const coupon = await prisma.coupon.findUnique({ where: { code: normalized } });
+            if (coupon && coupon.isActive && new Date() <= new Date(coupon.expiry)) {
+                // Minimum fare check
+                if (!coupon.minFare || baseFare >= coupon.minFare) {
+                    let discount = coupon.type === "PERCENTAGE" ? (baseFare * coupon.discount) / 100 : coupon.discount;
+                    if (coupon.maxDiscount && discount > coupon.maxDiscount) discount = coupon.maxDiscount;
+                    discountAmount = Math.min(discount, baseFare);
+                    discountAmount = Math.round(discountAmount * 100) / 100;
+                    appliedCouponId = coupon.id;
+                    appliedPromoCode = coupon.code;
+                }
+            }
+        }
+
+        const finalFare = Math.max(0, Math.round((baseFare - discountAmount) * 100) / 100);
+
+        // Generate cryptographic share token & human-friendly booking reference
+        const cryptoModule = await import("crypto");
+        const shareToken = cryptoModule.randomBytes(16).toString("hex");
+        const shareExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        const bookingRefPrefix = isRideScheduled ? "AC-SCH" : "AC";
+        const randomRefSuffix = cryptoModule.randomBytes(3).toString("hex").toUpperCase();
+        const bookingReference = `${bookingRefPrefix}-${randomRefSuffix}`;
 
         const newRide = await prisma.ride.create({
             data: {
@@ -163,9 +205,29 @@ export async function POST(req: Request) {
                 paymentMethod: paymentMethod || "MOMO",
                 customerPaymentPhone: customerPaymentPhone || guestPhone || undefined,
                 driverPaymentPhone: driverPaymentPhone || undefined,
-                fare: fare !== undefined ? parseFloat(fare) : undefined,
+                fare: finalFare,
+                originalFare: discountAmount > 0 ? baseFare : undefined,
+                discountAmount: discountAmount > 0 ? discountAmount : 0,
+                promoCode: appliedPromoCode,
                 status: initialStatus,
                 paymentStatus: "PENDING",
+                shareToken,
+                shareExpiresAt,
+                isSharingActive: true,
+                bookingReference,
+                isScheduled: isRideScheduled,
+                scheduledFor: scheduledDate,
+                scheduledStatus: isRideScheduled ? "CONFIRMED" : null,
+                notes: notes || undefined,
+                stops: stops && Array.isArray(stops) && stops.length > 0 ? {
+                    create: stops.map((s: any, idx: number) => ({
+                        sequence: idx + 1,
+                        address: s.address,
+                        lat: s.lat || 0,
+                        lng: s.lng || 0,
+                        status: "PENDING",
+                    }))
+                } : undefined,
             },
             include: {
                 rider: { select: { id: true, name: true, phone: true, email: true } },
@@ -173,27 +235,55 @@ export async function POST(req: Request) {
                     include: {
                         user: { select: { id: true, name: true, phone: true, email: true } }
                     }
-                }
+                },
+                stops: { orderBy: { sequence: "asc" } }
             }
         });
+
+        // Record promo redemption if applied
+        if (appliedCouponId && discountAmount > 0) {
+            try {
+                await prisma.couponRedemption.create({
+                    data: {
+                        couponId: appliedCouponId,
+                        userId: finalRiderId,
+                        phone: customerPaymentPhone || guestPhone || null,
+                        rideId: newRide.id,
+                        discountApplied: discountAmount
+                    }
+                });
+                await prisma.coupon.update({
+                    where: { id: appliedCouponId },
+                    data: { timesUsed: { increment: 1 } }
+                });
+            } catch (couponErr) {
+                console.warn("Failed to record coupon redemption:", couponErr);
+            }
+        }
 
         // Create Dispatcher Log for Admin Notification
         try {
             await prisma.dispatcherLog.create({
                 data: {
                     dispatcherId: user.userId,
-                    action: initialStatus === "ACCEPTED" ? "RIDE_DIRECT_MATCHED" : "RIDE_REQUESTED",
+                    action: isRideScheduled ? "SCHEDULED_RIDE_BOOKED" : (initialStatus === "ACCEPTED" ? "RIDE_DIRECT_MATCHED" : "RIDE_REQUESTED"),
                     details: JSON.stringify({
                         rideId: newRide.id,
+                        bookingReference: newRide.bookingReference,
                         clientName: newRide.guestName || newRide.rider?.name || "Client",
                         guestPhone: newRide.guestPhone,
                         originAddress: newRide.originAddress,
                         destAddress: newRide.destAddress,
+                        stopsCount: newRide.stops?.length || 0,
                         vehicleType: newRide.vehicleType,
                         rideCategory: newRide.rideCategory,
                         paymentMethod: newRide.paymentMethod,
                         driverId: resolvedDriverProfileId,
                         driverName: newRide.driver?.user?.name,
+                        isScheduled: isRideScheduled,
+                        scheduledFor: newRide.scheduledFor,
+                        promoCode: appliedPromoCode,
+                        fare: newRide.fare
                     })
                 }
             });
@@ -201,22 +291,24 @@ export async function POST(req: Request) {
             console.error("Failed to log ride request notification:", logErr);
         }
 
-        // Trigger asynchronous automated driver matching engine if no driver directly selected
-        if (!resolvedDriverProfileId) {
-            DispatchEngine.autoDispatchRide(newRide.id).catch((err) =>
-                console.error("Auto dispatch background task error:", err)
-            );
-        }
+        // Trigger autonomous dispatch ONLY if not scheduled for later
+        if (!isRideScheduled) {
+            if (!resolvedDriverProfileId) {
+                DispatchEngine.autoDispatchRide(newRide.id).catch((err) =>
+                    console.error("Auto dispatch background task error:", err)
+                );
+            }
 
-        // Publish SSE Event for Admin, Riders, and Drivers
-        const eventType = initialStatus === "ACCEPTED" ? "RIDE_ACCEPTED" : "RIDE_REQUESTED";
-        rideStreamManager.publish({
-            type: eventType,
-            rideId: newRide.id,
-            driverId: resolvedDriverProfileId,
-            data: newRide,
-            timestamp: new Date().toISOString(),
-        });
+            // Publish SSE Event for Admin, Riders, and Drivers
+            const eventType = initialStatus === "ACCEPTED" ? "RIDE_ACCEPTED" : "RIDE_REQUESTED";
+            rideStreamManager.publish({
+                type: eventType,
+                rideId: newRide.id,
+                driverId: resolvedDriverProfileId,
+                data: newRide,
+                timestamp: new Date().toISOString(),
+            });
+        }
 
         // Save response in idempotency cache if key supplied
         if (idempotencyKey) {

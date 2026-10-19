@@ -144,7 +144,7 @@ export async function POST(req: Request) {
 
         // 7. Trigger Autonomous Dispatch Engine
         try {
-            DispatchEngine.dispatchRide(ride.id).catch((err) =>
+            DispatchEngine.autoDispatchRide(ride.id).catch((err: unknown) =>
                 console.error("Async dispatch error for whatsapp ride:", err)
             );
         } catch (dispatchErr) {

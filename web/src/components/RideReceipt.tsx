@@ -61,6 +61,7 @@ interface RideReceiptProps {
     onClose?: () => void;
     onSubmitRating?: (rating: number, comment: string) => Promise<void>;
     ratingSubmitted?: boolean;
+    onReportLostItem?: (ride: RideReceiptData) => void;
 }
 
 export default function RideReceipt({
@@ -68,7 +69,8 @@ export default function RideReceipt({
     role = "CUSTOMER",
     onClose,
     onSubmitRating,
-    ratingSubmitted = false
+    ratingSubmitted = false,
+    onReportLostItem
 }: RideReceiptProps) {
     const [rating, setRating] = useState<number>(5);
     const [comment, setComment] = useState<string>("");
@@ -351,7 +353,7 @@ export default function RideReceipt({
 
             {/* Receipt Actions */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <button
                         type="button"
                         onClick={handlePrint}
@@ -367,6 +369,15 @@ export default function RideReceipt({
                         {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
                         {copied ? "Copied!" : "Copy Summary"}
                     </button>
+                    {role === "CUSTOMER" && onReportLostItem && (
+                        <button
+                            type="button"
+                            onClick={() => onReportLostItem(ride)}
+                            className="px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border border-amber-200"
+                        >
+                            🎒 Report Lost Item
+                        </button>
+                    )}
                 </div>
 
                 {onClose && (

@@ -30,6 +30,9 @@ model User {
   reviews       Review[]
   complaints    Complaint[]    @relation("UserComplaints")
   adminLogs     DispatcherLog[] @relation("AdminLogs")
+  savedPlaces   SavedPlace[]
+  lostItemReports LostItemReport[]
+  couponRedemptions CouponRedemption[]
   
   // Multi-Tenant Fleet Relation
   companyId     String?
@@ -360,10 +363,30 @@ model Ride {
   payments      PaymentTransaction[]
   sosAlert      Boolean        @default(false)
   isArchived    Boolean        @default(false)
-  shareToken    String?
+  shareToken    String?        @unique
+  shareExpiresAt DateTime?
+  isSharingActive Boolean      @default(true)
   rideOffers    RideOffer[]
   depositDeducted Boolean      @default(false)  // True once wallet deposit has been deducted
   depositAmount   Float?                         // Amount deducted from driver wallet
+
+  // Advance Booking & Scheduling
+  isScheduled       Boolean      @default(false)
+  scheduledFor      DateTime?
+  scheduledStatus   String?      @default("CONFIRMED") // CONFIRMED, DISPATCHED, COMPLETED, CANCELLED, FAILED_TO_ASSIGN
+  bookingReference  String?      @unique
+  notes             String?
+
+  // Multi-Stop Route
+  stops             RideStop[]
+
+  // Promotional Discounts
+  promoCode         String?
+  discountAmount    Float?       @default(0)
+  originalFare      Float?
+
+  // Lost Item Recovery Reports
+  lostItemReports   LostItemReport[]
 }
 
 model PaymentTransaction {
@@ -403,13 +426,95 @@ model Review {
 }
 
 model Coupon {
+  id                   String             @id @default(cuid())
+  code                 String             @unique
+  discount             Float              // Percentage or fixed amount
+  type                 String             @default("PERCENTAGE") // PERCENTAGE, FIXED
+  isActive             Boolean            @default(true)
+  expiry               DateTime
+  startDate            DateTime?          @default(now())
+  minFare              Float?             @default(0)
+  maxDiscount          Float?
+  usageLimit           Int?               // Maximum total redemptions
+  perCustomerLimit     Int?               @default(1)
+  timesUsed            Int                @default(0)
+  applicableCategories String?            @default("ALL") // "ALL" or comma-separated e.g. "Regular,Comfort,VIP"
+  description          String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  redemptions          CouponRedemption[]
+}
+
+model CouponRedemption {
+  id              String   @id @default(cuid())
+  couponId        String
+  coupon          Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  phone           String?
+  rideId          String?
+  discountApplied Float
+  redeemedAt      DateTime @default(now())
+
+  @@index([couponId])
+  @@index([userId])
+  @@index([phone])
+}
+
+model RideStop {
+  id          String    @id @default(cuid())
+  rideId      String
+  ride        Ride      @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  sequence    Int       // 1, 2, 3...
+  address     String
+  lat         Float     @default(0)
+  lng         Float     @default(0)
+  status      String    @default("PENDING") // PENDING, ARRIVED, COMPLETED, SKIPPED
+  arrivedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([rideId, sequence])
+}
+
+model SavedPlace {
   id        String   @id @default(cuid())
-  code      String   @unique
-  discount  Float // Percentage or fixed amount
-  type      String   @default("PERCENTAGE") // PERCENTAGE, FIXED
-  isActive  Boolean  @default(true)
-  expiry    DateTime
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String   // e.g. "Home", "Work", "Office", "School", "Family"
+  address   String
+  lat       Float
+  lng       Float
+  icon      String?  @default("map-pin") // "home", "briefcase", "heart", "map-pin", "star"
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model LostItemReport {
+  id             String    @id @default(cuid())
+  reference      String    @unique // e.g. "LIR-83921"
+  rideId         String
+  ride           Ride      @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contactPhone   String
+  contactName    String?
+  category       String    // PHONE, WALLET, BAG, DOCUMENTS, CLOTHING, KEYS, OTHER
+  description    String
+  itemPhotoUrl   String?
+  status         String    @default("PENDING") // PENDING, DRIVER_CONTACTED, ITEM_FOUND, RECOVERY_ARRANGED, RESOLVED, CLOSED
+  adminNotes     String?
+  driverResponse String?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([rideId])
+  @@index([userId])
+  @@index([status])
 }
 
 model Announcement {
