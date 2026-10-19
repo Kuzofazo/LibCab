@@ -13,8 +13,42 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
+        let whereClause: any = { isArchived: false };
+
+        if (user.role === "DRIVER") {
+            try {
+                let driverProfileId = user.userId;
+                let isApproved = true;
+                let isOnline = true;
+
+                const dp = await prisma.driverProfile.findUnique({
+                    where: { userId: user.userId },
+                    select: { id: true, approvalStatus: true, isOnline: true },
+                }).catch(() => null);
+
+                if (dp) {
+                    driverProfileId = dp.id;
+                    isApproved = dp.approvalStatus === "APPROVED";
+                    isOnline = dp.isOnline;
+                }
+
+                const { checkDriverEligibility } = await import("@/lib/walletService");
+                const eligibility = await checkDriverEligibility(driverProfileId);
+
+                if (!isApproved || !isOnline || !eligibility.eligible) {
+                    // Ineligible drivers only see rides assigned to them; they cannot receive unassigned requests
+                    whereClause = {
+                        isArchived: false,
+                        driverId: driverProfileId,
+                    };
+                }
+            } catch (err) {
+                console.warn("Driver eligibility filter warning in GET rides:", err);
+            }
+        }
+
         const rides = await prisma.ride.findMany({
-            where: { isArchived: false },
+            where: whereClause,
             include: {
                 rider: { select: { id: true, name: true, email: true, phone: true } },
                 driver: {
@@ -223,10 +257,75 @@ export async function PATCH(req: Request) {
 
         if (status === "IN_PROGRESS") {
             updateData.startedAt = new Date();
+
+            // ── Wallet Deposit Deduction on Ride Start ──────────────────────
+            // Fetch the current ride to get driverId and check if already deducted
+            const currentRide = await prisma.ride.findUnique({
+                where: { id },
+                select: { driverId: true, depositDeducted: true, fare: true },
+            });
+
+            if (currentRide?.driverId && !currentRide.depositDeducted) {
+                try {
+                    const { deductRideDeposit, calculateRideDeposit, checkDriverEligibility } = await import("@/lib/walletService");
+
+                    const depositAmount = await calculateRideDeposit(currentRide.fare);
+                    const eligibility = await checkDriverEligibility(currentRide.driverId);
+
+                    if (!eligibility.eligible || eligibility.balance < depositAmount) {
+                        return NextResponse.json({
+                            error: `Insufficient wallet balance to start ride. Required deposit: ${depositAmount.toFixed(2)} LRD, Available: ${eligibility.balance.toFixed(2)} LRD.`,
+                            code: "INSUFFICIENT_WALLET_BALANCE",
+                            balance: eligibility.balance,
+                            depositAmount,
+                        }, { status: 402 });
+                    }
+
+                    const deductResult = await deductRideDeposit({
+                        driverProfileId: currentRide.driverId,
+                        rideId: id,
+                        amount: depositAmount,
+                        idempotencyKey: `ride-deposit-${id}`,
+                        note: `Deposit for ride ${id}`,
+                    });
+
+                    if (!deductResult.success) {
+                        return NextResponse.json({
+                            error: deductResult.error || "Wallet deduction failed. Cannot start ride.",
+                            code: "WALLET_DEDUCTION_FAILED",
+                        }, { status: 402 });
+                    }
+
+                    // Broadcast wallet update to driver dashboard & admin in real time
+                    try {
+                        rideStreamManager.publish({
+                            type: "WALLET_UPDATED",
+                            driverId: currentRide.driverId,
+                            data: {
+                                driverId: currentRide.driverId,
+                                balance: deductResult.balance,
+                                deductedAmount: depositAmount,
+                                rideId: id,
+                            },
+                            timestamp: new Date().toISOString(),
+                        });
+                    } catch {}
+                } catch (walletErr) {
+                    console.error("Wallet deduction error on ride start:", walletErr);
+                }
+            }
         } else if (status === "COMPLETED") {
             updateData.completedAt = new Date();
             updateData.paymentStatus = paymentStatus || "PAID";
+        } else if (status === "CANCELLED") {
+            try {
+                const { refundRideDeposit } = await import("@/lib/walletService");
+                await refundRideDeposit(id, "Refund for cancelled ride");
+            } catch (refundErr) {
+                console.error("Refund on ride cancellation error:", refundErr);
+            }
         }
+
 
         if (driverId) {
             let driverRecord = await prisma.driverProfile.findUnique({

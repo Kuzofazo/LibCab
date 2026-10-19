@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Menu, X, ChevronRight } from "lucide-react";
+import { Menu, X, ChevronRight, MessageCircle } from "lucide-react";
+import { triggerWhatsAppBooking } from "@/components/WhatsAppFloatingButton";
 import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
 
@@ -103,7 +104,17 @@ export default function Navbar() {
         </div>
 
         {/* Actions */}
-        <div className="hidden md:flex items-center gap-4">
+        <div className="hidden md:flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => triggerWhatsAppBooking()}
+            className="px-3.5 py-2 rounded-full text-xs font-black flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 hover:scale-105 active:scale-95 transition-all shadow-sm cursor-pointer"
+            title="Book Ride via WhatsApp (10s)"
+          >
+            <MessageCircle size={15} className="text-[#25D366] fill-[#25D366]" />
+            <span>WhatsApp Dispatch</span>
+          </button>
+
           {user ? (
             <div className="flex items-center gap-6">
               <Link
@@ -181,6 +192,20 @@ export default function Navbar() {
               </Link>
             )}
             <div className="border-t border-gray-100 mt-2 pt-4 flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  triggerWhatsAppBooking();
+                }}
+                className="w-full py-3 px-4 rounded-xl text-sm font-black flex items-center justify-between bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100 transition-colors cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <MessageCircle size={18} className="text-[#25D366] fill-[#25D366]" />
+                  Book on WhatsApp (10s)
+                </span>
+                <span className="text-[10px] bg-[#25D366] text-white px-2 py-0.5 rounded-full font-bold">Fast</span>
+              </button>
               {user ? (
                 <>
                   <Link

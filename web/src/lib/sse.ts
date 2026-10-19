@@ -12,9 +12,15 @@ export type RideEventType =
     | "RIDE_ACCEPTED" 
     | "DRIVER_ARRIVED"
     | "RIDE_STARTED"
+    | "DEPOSIT_INITIATED"
+    | "DEPOSIT_CONFIRMED"
+    | "DEPOSIT_FAILED"
     | "DRIVER_ONLINE" 
     | "DRIVER_OFFLINE"
     | "RIDE_CANCELLED"
+    | "WALLET_UPDATED"
+    | "DRIVER_APPROVAL_UPDATED"
+    | "NEW_DRIVER_SIGNUP"
     | "SOS_ALERT";
 
 export interface RideEventPayload {

@@ -35,6 +35,7 @@ import { formatDual } from "@/utils/currency";
 import { NearbyDriverResult } from "@/lib/geo";
 import type { MapMarker, MapRoute } from "@/components/MapComponent";
 import ShareModal from "@/components/ShareModal";
+import { triggerWhatsAppBooking } from "@/components/WhatsAppFloatingButton";
 
 // Lazy-load MapComponent
 const MapComponent = dynamic(() => import("@/components/MapComponent"), {
@@ -476,6 +477,23 @@ function GuestBookingContent() {
                             >
                                 {loading ? <Loader2 className="animate-spin" size={18} /> : <>View Nearby Drivers <ArrowRight size={18} /></>}
                             </button>
+
+                            <div className="relative my-4 flex items-center justify-center">
+                                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
+                                <span className="relative bg-white px-3 text-[10px] font-black uppercase tracking-wider text-slate-400">or book via whatsapp</span>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => triggerWhatsAppBooking({
+                                    name: trip.name,
+                                    phone: phone,
+                                })}
+                                className="w-full py-3.5 bg-[#25D366] hover:bg-[#1ebd5b] text-white rounded-2xl font-black text-sm tracking-wide shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                            >
+                                <MessageCircle size={18} className="fill-current" />
+                                <span>Book Instantly on WhatsApp (10s)</span>
+                            </button>
                         </form>
                     </div>
                 )}
@@ -496,6 +514,31 @@ function GuestBookingContent() {
                                         )}
                                     </div>
                                     <p className="text-xs text-slate-500 mt-1">Select your pickup, destination, and vehicle preference.</p>
+                                </div>
+
+                                {/* WhatsApp 1-Tap Alternative Banner */}
+                                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-green-50 border border-emerald-200/80 flex items-center justify-between gap-3 shadow-sm">
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                        <div className="w-8 h-8 rounded-xl bg-[#25D366] text-white flex items-center justify-center shrink-0 shadow-sm">
+                                            <MessageCircle size={17} className="fill-current" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-black text-slate-900 truncate">Book via WhatsApp Dispatch</p>
+                                            <p className="text-[10px] text-slate-600 font-medium truncate">Instant 10s auto-ticket with live radar link</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => triggerWhatsAppBooking({
+                                            phone,
+                                            pickup: trip.pickup,
+                                            destination: trip.destination,
+                                            rideCategory: category === "VIP" ? "VIP" : category === "Comfort" ? "Comfort" : "Standard"
+                                        })}
+                                        className="px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#1ebd5b] text-white font-black text-xs shrink-0 shadow-sm transition-all active:scale-95 cursor-pointer"
+                                    >
+                                        1-Tap Dispatch
+                                    </button>
                                 </div>
 
                                 {/* Selected Driver Notification Banner */}

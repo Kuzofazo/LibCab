@@ -10,7 +10,7 @@ export async function GET(req: Request) {
 
         const logs = await prisma.dispatcherLog.findMany({
             where: {
-                action: { in: ["DRIVER_ARRIVED", "RIDE_STARTED", "RIDE_COMPLETED"] },
+                action: { in: ["SECURITY_INTRUSION_ALERT", "EMERGENCY_SOS_PANIC", "DRIVER_ARRIVED", "RIDE_STARTED", "RIDE_COMPLETED", "RIDE_REQUESTED", "RIDE_ACCEPTED"] },
                 createdAt: { gt: sinceDate }
             },
             orderBy: { createdAt: "asc" }

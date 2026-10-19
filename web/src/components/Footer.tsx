@@ -24,6 +24,10 @@ export default function Footer() {
                                 <Phone size={13} className="text-red-500" />
                                 <span>+231 77 000 0000</span>
                             </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-[#25D366] text-xs">💬</span>
+                                <a href="https://wa.me/231770000000" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-white transition-colors">WhatsApp: +231 77 000 0000</a>
+                            </div>
                         </div>
                     </div>
 
@@ -49,6 +53,7 @@ export default function Footer() {
                             <li><Link href="#business" className="hover:text-white transition-colors">Business</Link></li>
                             <li><Link href="/fleet" className="text-emerald-400 hover:text-emerald-300 font-bold transition-colors">Fleet Tracking Portal 🚀</Link></li>
                             <li><Link href="/book/guest" className="hover:text-white transition-colors">Guest Booking</Link></li>
+                            <li><a href="https://wa.me/231770000000" target="_blank" rel="noopener noreferrer" className="text-[#25D366] hover:text-white font-bold transition-colors">WhatsApp Dispatch (10s) ⚡</a></li>
                         </ul>
                     </div>
 

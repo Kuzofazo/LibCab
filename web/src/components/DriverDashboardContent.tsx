@@ -31,7 +31,15 @@ import {
     Eye,
     EyeOff,
     Loader2,
-    Sparkles
+    Sparkles,
+    Wallet,
+    ArrowDownLeft,
+    ArrowUpRight,
+    PlusCircle,
+    XCircle,
+    TrendingDown,
+    Banknote,
+    History
 } from "lucide-react";
 import { formatDual } from "@/utils/currency";
 import type { MapMarker } from "@/components/MapComponent";
@@ -91,6 +99,21 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     const [statusUpdating, setStatusUpdating] = useState(false);
     const [driverProfileId, setDriverProfileId] = useState<string | null>(user?.driverProfileId || null);
     const [viewingReceiptRide, setViewingReceiptRide] = useState<any>(null);
+
+    // ─── Wallet State ───────────────────────────────────────────────────────
+    const [walletData, setWalletData] = useState<any>(null);
+    const [walletLoading, setWalletLoading] = useState(false);
+    const [showWalletTab, setShowWalletTab] = useState(false);
+    const [fundingAmount, setFundingAmount] = useState("");
+    const [fundingProvider, setFundingProvider] = useState<"MTN" | "ORANGE">("MTN");
+    const [fundingPhone, setFundingPhone] = useState("");
+    const [fundingLoading, setFundingLoading] = useState(false);
+    const [fundingResult, setFundingResult] = useState<{ success: boolean; message: string } | null>(null);
+    const [walletInsufficientAlert, setWalletInsufficientAlert] = useState<{
+        balance: number;
+        minBalance: number;
+        shortfall: number;
+    } | null>(null);
 
     // Rotating Motivational Message State
     const [msgIndex, setMsgIndex] = useState(0);
@@ -374,8 +397,20 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     return;
                 }
 
-                // ── Incoming ride offers (only if online and approved) ──
-                if (!isOnline || approvalStatus !== "APPROVED") return;
+                // ── Real-time wallet update broadcast ──
+                if (payload.type === "WALLET_UPDATED" || payload.type === "DEPOSIT_CONFIRMED") {
+                    const isForMe = !payload.driverId ||
+                        payload.driverId === user?.id ||
+                        payload.driverId === user?.driverProfileId ||
+                        payload.driverId === driverProfileId;
+                    if (isForMe) {
+                        fetchWallet();
+                    }
+                    return;
+                }
+
+                // ── Incoming ride offers (only if online, approved, and wallet balance eligible) ──
+                if (!isOnline || approvalStatus !== "APPROVED" || (walletData && walletData.eligible === false)) return;
 
                 if (payload.type === "RIDE_OFFER_RECEIVED" || payload.type === "RIDE_REQUESTED") {
                     const offerData = payload.data?.ride || payload.data;
@@ -544,6 +579,17 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 setIncomingOffer(null);
                 if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
                 fetchRides(user.id);
+            } else if (res.status === 402 || data.code === "INSUFFICIENT_WALLET_BALANCE") {
+                setIncomingOffer(null);
+                if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                setWalletInsufficientAlert({
+                    balance: data?.balance ?? 0,
+                    minBalance: data?.minBalance ?? 500,
+                    shortfall: data?.shortfall ?? 500,
+                });
+                setShowWalletTab(true);
+                fetchWallet();
+                alert(data?.error || "Insufficient Wallet Balance. Please fund your wallet to accept ride requests.");
             } else {
                 alert(data.error || "Failed to accept ride request.");
             }
@@ -613,9 +659,24 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     driverPaymentPhone: user.phone || currentUser?.phone || "+231 88 012 3456"
                 })
             });
+            if (res.status === 402) {
+                const data = await res.json().catch(() => ({}));
+                setWalletInsufficientAlert({
+                    balance: data?.balance ?? 0,
+                    minBalance: data?.depositAmount ?? 200,
+                    shortfall: Math.max(0, (data?.depositAmount ?? 200) - (data?.balance ?? 0)),
+                });
+                setShowWalletTab(true);
+                fetchWallet();
+                alert(`Cannot Start Ride: ${data?.error || "Insufficient wallet balance to pay required ride deposit. Please fund your wallet to continue."}`);
+                return;
+            }
             if (res.ok) {
                 const updated = await res.json();
                 setActiveRide(updated);
+                if (status === "IN_PROGRESS") {
+                    fetchWallet();
+                }
                 // Immediately broadcast coordinates so customer sees driver at pickup or on journey
                 if (myCoords) {
                     broadcastLocation(myCoords.lat, myCoords.lng);
@@ -674,6 +735,53 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
         } catch {}
     }, []);
 
+    // ─── Wallet Data Fetch ──────────────────────────────────────────────────
+    const fetchWallet = useCallback(async () => {
+        setWalletLoading(true);
+        try {
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            if (!token) return;
+            const res = await fetch("/api/driver/wallet", {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setWalletData(data);
+            }
+        } catch {}
+        finally { setWalletLoading(false); }
+    }, []);
+
+    useEffect(() => {
+        if (approvalStatus === "APPROVED") {
+            fetchWallet();
+        }
+    }, [approvalStatus, fetchWallet]);
+
+    // ─── Fund Wallet ────────────────────────────────────────────────────────
+    const handleFundWallet = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!fundingAmount || parseFloat(fundingAmount) <= 0) return;
+        setFundingLoading(true);
+        setFundingResult(null);
+        try {
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const res = await fetch("/api/driver/wallet/fund", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                body: JSON.stringify({ amount: parseFloat(fundingAmount), provider: fundingProvider, phoneNumber: fundingPhone || user?.phone || "+231880000000" }),
+            });
+            const data = await res.json();
+            setFundingResult({ success: res.ok && data.success, message: data.message || data.error || "Unknown response" });
+            if (res.ok && data.success) {
+                setFundingAmount("");
+                fetchWallet();
+                setWalletInsufficientAlert(null);
+            }
+        } catch { setFundingResult({ success: false, message: "Network error. Please try again." }); }
+        finally { setFundingLoading(false); }
+    };
+
     const toggleStatus = async () => {
         // Block going online if not approved — inform driver clearly
         if (!isOnline && approvalStatus !== "APPROVED") {
@@ -706,6 +814,19 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     if (data?.rejectionReason) setRejectionReason(data.rejectionReason);
                     const backendMsg = data?.error || "You are not authorized to go online at this time.";
                     alert(backendMsg);
+                    return;
+                }
+
+                // Backend 402 = insufficient wallet balance
+                if (res.status === 402) {
+                    const data = await res.json().catch(() => ({}));
+                    setIsOnline(false);
+                    setWalletInsufficientAlert({
+                        balance: data?.balance ?? 0,
+                        minBalance: data?.minBalance ?? 500,
+                        shortfall: data?.shortfall ?? 500,
+                    });
+                    setShowWalletTab(true);
                     return;
                 }
             } catch {}
@@ -805,6 +926,30 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                             <Power size={12} className="shrink-0" />
                             <span className="hidden xs:inline">Go </span>{isOnline ? 'Offline' : 'Online'}
                         </button>
+
+                        {/* Wallet Button */}
+                        {approvalStatus === "APPROVED" && (
+                            <button
+                                type="button"
+                                onClick={() => { setShowWalletTab(v => !v); if (!walletData) fetchWallet(); }}
+                                className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full font-black text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-sm active:scale-95 ${
+                                    showWalletTab
+                                        ? 'bg-slate-900 text-white border border-slate-700'
+                                        : walletInsufficientAlert
+                                            ? 'bg-red-100 hover:bg-red-200 text-red-800 border border-red-300 animate-pulse'
+                                            : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
+                                }`}
+                                title="My Wallet"
+                            >
+                                <Wallet size={12} className="shrink-0" />
+                                <span className="hidden sm:inline">My Wallet</span>
+                                {walletData?.wallet && (
+                                    <span className="hidden md:inline font-black text-emerald-600 ml-0.5">
+                                        {walletData.wallet.balance.toFixed(0)} LRD
+                                    </span>
+                                )}
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -854,6 +999,41 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 </div>
             )}
 
+            {/* ─── Insufficient Wallet Balance Alert ───────────────────────────────── */}
+            {walletInsufficientAlert && approvalStatus === "APPROVED" && (
+                <div className="bg-orange-50 border-b-2 border-orange-400 px-4 py-4">
+                    <div className="container mx-auto max-w-6xl flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="flex items-start gap-3 text-left">
+                            <div className="w-9 h-9 bg-orange-400 rounded-xl flex items-center justify-center shrink-0">
+                                <Wallet size={18} className="text-white" />
+                            </div>
+                            <div>
+                                <p className="text-xs font-black uppercase tracking-wider text-orange-900 mb-0.5">Insufficient Wallet Balance</p>
+                                <p className="text-[11px] font-semibold leading-relaxed text-orange-800">
+                                    Your current balance is <strong>{walletInsufficientAlert.balance.toFixed(2)} LRD</strong>.
+                                    You need at least <strong>{walletInsufficientAlert.minBalance.toFixed(2)} LRD</strong> to go online.
+                                    {" "}Please fund your wallet with <strong>{walletInsufficientAlert.shortfall.toFixed(2)} LRD</strong> or more.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                            <button
+                                onClick={() => { setShowWalletTab(true); fetchWallet(); }}
+                                className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-black uppercase tracking-widest rounded-full whitespace-nowrap transition-all"
+                            >
+                                Fund Wallet
+                            </button>
+                            <button
+                                onClick={() => setWalletInsufficientAlert(null)}
+                                className="px-3 py-1.5 bg-orange-100 hover:bg-orange-200 text-orange-800 text-[10px] font-black uppercase tracking-widest rounded-full whitespace-nowrap transition-all"
+                            >
+                                Dismiss
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Temporary Password Alert Banner */}
             {currentUser?.forcePasswordChange && (
                 <div className="bg-amber-500 text-slate-950 px-4 py-3 font-bold text-xs border-b border-amber-600 shadow-inner">
@@ -875,7 +1055,198 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 </div>
             )}
 
+            {/* ─── My Wallet Panel ──────────────────────────────────────────────────── */}
+            {showWalletTab && approvalStatus === "APPROVED" && (
+                <div className="border-b border-slate-200 bg-gradient-to-br from-slate-900 to-slate-800 text-white">
+                    <div className="container mx-auto px-4 sm:px-6 py-6 max-w-6xl">
+                        <div className="flex items-center justify-between mb-5">
+                            <div className="flex items-center gap-2">
+                                <Wallet size={20} className="text-emerald-400" />
+                                <h2 className="text-lg font-black tracking-tight">My Wallet</h2>
+                                <span className="text-[9px] font-black text-slate-400 bg-slate-700 px-2 py-0.5 rounded-full uppercase tracking-widest">
+                                    {walletData?.wallet?.status ?? "LOADING"}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={fetchWallet}
+                                    className="p-2 rounded-full bg-slate-700 hover:bg-slate-600 transition-all text-slate-400 hover:text-white"
+                                    title="Refresh wallet"
+                                >
+                                    <RefreshCw size={13} className={walletLoading ? "animate-spin" : ""} />
+                                </button>
+                                <button
+                                    onClick={() => setShowWalletTab(false)}
+                                    className="p-2 rounded-full bg-slate-700 hover:bg-slate-600 transition-all text-slate-400 hover:text-white"
+                                >
+                                    <XCircle size={13} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {walletLoading && !walletData ? (
+                            <div className="flex items-center justify-center py-12">
+                                <Loader2 size={24} className="animate-spin text-emerald-400" />
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                                {/* Balance Card */}
+                                <div className="lg:col-span-1 bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-3xl p-6 relative overflow-hidden">
+                                    <div className="absolute -top-6 -right-6 w-24 h-24 bg-white/10 rounded-full blur-2xl" />
+                                    <div className="absolute -bottom-4 -left-4 w-16 h-16 bg-white/5 rounded-full blur-xl" />
+                                    <p className="text-[10px] font-black text-emerald-200 uppercase tracking-widest mb-1">Available Balance</p>
+                                    <h3 className="text-4xl font-black text-white mb-1 relative z-10">
+                                        {walletData?.wallet?.balance?.toFixed(2) ?? "0.00"}
+                                    </h3>
+                                    <p className="text-emerald-300 font-bold text-sm">LRD</p>
+                                    <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-2 gap-2 text-xs relative z-10">
+                                        <div>
+                                            <p className="text-emerald-300 text-[9px] font-black uppercase tracking-wider">Min. Required</p>
+                                            <p className="text-white font-black">{walletData?.config?.minBalance?.toFixed(2) ?? "500.00"} LRD</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-emerald-300 text-[9px] font-black uppercase tracking-wider">Ride Deposit</p>
+                                            <p className="text-white font-black">
+                                                {walletData?.config?.depositMode === "PERCENT"
+                                                    ? `${walletData?.config?.depositPercent ?? 10}% of fare`
+                                                    : `${walletData?.config?.depositAmount?.toFixed(2) ?? "200.00"} LRD`}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-emerald-300 text-[9px] font-black uppercase tracking-wider">Total Funded</p>
+                                            <p className="text-white font-black">{walletData?.wallet?.totalDeposited?.toFixed(2) ?? "0.00"} LRD</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-emerald-300 text-[9px] font-black uppercase tracking-wider">Total Deducted</p>
+                                            <p className="text-white font-black">{walletData?.wallet?.totalDeducted?.toFixed(2) ?? "0.00"} LRD</p>
+                                        </div>
+                                    </div>
+                                    <div className={`mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider w-fit ${
+                                        walletData?.eligible
+                                            ? "bg-white/20 text-emerald-100"
+                                            : "bg-red-500/30 text-red-200 animate-pulse"
+                                    }`}>
+                                        {walletData?.eligible ? <CheckCircle2 size={10} /> : <AlertTriangle size={10} />}
+                                        {walletData?.eligible ? "Eligible to Go Online" : "Insufficient Balance"}
+                                    </div>
+                                </div>
+
+                                {/* Fund Wallet Form */}
+                                <div className="lg:col-span-1 bg-slate-700/60 rounded-3xl p-5 border border-slate-600/50 backdrop-blur-sm">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <PlusCircle size={16} className="text-emerald-400" />
+                                        <h4 className="font-black text-sm uppercase tracking-wider">Fund Wallet</h4>
+                                        <span className="text-[9px] bg-amber-500/20 text-amber-400 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">Sandbox Mode</span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 mb-4 leading-relaxed">
+                                        Official MTN &amp; Orange Money integration is ready — credentials will be activated by the administrator. Use sandbox mode to test wallet funding.
+                                    </p>
+
+                                    {fundingResult && (
+                                        <div className={`mb-3 p-3 rounded-2xl text-[11px] font-semibold leading-relaxed ${
+                                            fundingResult.success ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-red-500/20 text-red-300 border border-red-500/30"
+                                        }`}>
+                                            {fundingResult.success ? <CheckCircle2 size={12} className="inline mr-1" /> : <AlertTriangle size={12} className="inline mr-1" />}
+                                            {fundingResult.message}
+                                        </div>
+                                    )}
+
+                                    <form onSubmit={handleFundWallet} className="space-y-3">
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Provider</label>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {(["MTN", "ORANGE"] as const).map(p => (
+                                                    <button
+                                                        key={p}
+                                                        type="button"
+                                                        onClick={() => setFundingProvider(p)}
+                                                        className={`py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
+                                                            fundingProvider === p
+                                                                ? p === "MTN" ? "bg-yellow-500 text-black" : "bg-orange-500 text-white"
+                                                                : "bg-slate-600 text-slate-300 hover:bg-slate-500"
+                                                        }`}
+                                                    >
+                                                        {p === "MTN" ? "🟡 MTN" : "🟠 Orange"}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Amount (LRD)</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                step="0.01"
+                                                placeholder="e.g. 500"
+                                                value={fundingAmount}
+                                                onChange={e => setFundingAmount(e.target.value)}
+                                                className="w-full bg-slate-600 border border-slate-500 rounded-xl px-3 py-2 text-sm font-semibold text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Mobile Number</label>
+                                            <input
+                                                type="tel"
+                                                placeholder={user?.phone || "+231 88 000 0000"}
+                                                value={fundingPhone}
+                                                onChange={e => setFundingPhone(e.target.value)}
+                                                className="w-full bg-slate-600 border border-slate-500 rounded-xl px-3 py-2 text-sm font-semibold text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                            />
+                                        </div>
+                                        <button
+                                            type="submit"
+                                            disabled={fundingLoading}
+                                            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 disabled:text-slate-400 text-white text-[11px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2"
+                                        >
+                                            {fundingLoading ? <Loader2 size={14} className="animate-spin" /> : <Banknote size={14} />}
+                                            {fundingLoading ? "Processing..." : "Fund My Wallet"}
+                                        </button>
+                                    </form>
+                                </div>
+
+                                {/* Transaction History */}
+                                <div className="lg:col-span-1 bg-slate-700/60 rounded-3xl p-5 border border-slate-600/50 backdrop-blur-sm">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <History size={16} className="text-emerald-400" />
+                                        <h4 className="font-black text-sm uppercase tracking-wider">Transaction History</h4>
+                                    </div>
+                                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1 scrollbar-hide">
+                                        {(walletData?.wallet?.transactions ?? []).length === 0 ? (
+                                            <p className="text-slate-400 text-[11px] text-center py-6">No transactions yet.</p>
+                                        ) : (
+                                            (walletData?.wallet?.transactions ?? []).map((tx: any) => (
+                                                <div key={tx.id} className="flex items-start gap-2 p-3 bg-slate-800/60 rounded-2xl border border-slate-600/30">
+                                                    <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
+                                                        tx.type === "CREDIT" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                                                    }`}>
+                                                        {tx.type === "CREDIT" ? <ArrowDownLeft size={12} /> : <ArrowUpRight size={12} />}
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center justify-between gap-1">
+                                                            <p className="text-[10px] font-black text-white truncate capitalize">
+                                                                {tx.category?.replace(/_/g, " ") ?? tx.type}
+                                                            </p>
+                                                            <p className={`text-[10px] font-black shrink-0 ${tx.type === "CREDIT" ? "text-emerald-400" : "text-red-400"}`}>
+                                                                {tx.type === "CREDIT" ? "+" : "-"}{tx.amount.toFixed(2)} LRD
+                                                            </p>
+                                                        </div>
+                                                        <p className="text-[9px] text-slate-500 mt-0.5">{new Date(tx.createdAt).toLocaleString()}</p>
+                                                        {tx.note && <p className="text-[9px] text-slate-400 mt-0.5 truncate">{tx.note}</p>}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Live Position Map */}
+
             {myCoords && (
                 <div className="border-b border-slate-100 bg-slate-50">
                     <div className="container mx-auto px-4 sm:px-6 py-4">

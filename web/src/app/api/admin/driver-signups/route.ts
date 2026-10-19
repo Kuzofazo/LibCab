@@ -145,6 +145,21 @@ export async function POST(req: Request) {
                 include: { user: true }
             });
 
+            // Automatically create individual wallet for approved driver
+            try {
+                const { ensureDriverWallet } = await import("@/lib/walletService");
+                await ensureDriverWallet(profile.id, {
+                    userId: profile.userId,
+                    name: profile.user?.name || undefined,
+                    email: profile.user?.email || undefined,
+                    phone: profile.user?.phone || undefined,
+                    vehicleModel: profile.vehicleModel || undefined,
+                    licensePlate: profile.licensePlate || undefined,
+                });
+            } catch (walletErr) {
+                console.error("Failed to auto-create wallet on approval:", walletErr);
+            }
+
             // Log action in audit trail
             await prisma.dispatcherLog.create({
                 data: {

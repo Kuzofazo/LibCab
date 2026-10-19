@@ -20,7 +20,7 @@ import Link from "next/link";
 
 interface NotificationItem {
     id: string;
-    type: "REQUEST" | "ACCEPTED" | "STATUS" | "SOS";
+    type: "REQUEST" | "ACCEPTED" | "STATUS" | "SOS" | "SECURITY";
     title: string;
     message: string;
     details?: {
@@ -38,6 +38,16 @@ interface NotificationItem {
         reason?: string;
         lat?: number;
         lng?: number;
+        ip?: string;
+        city?: string;
+        country?: string;
+        region?: string;
+        deviceFingerprint?: string;
+        attemptedUsername?: string;
+        attackType?: string;
+        maliciousPayload?: string;
+        targetUrl?: string;
+        severity?: string;
     };
     timestamp: Date;
     read: boolean;
@@ -47,6 +57,7 @@ export default function AdminNotificationListener() {
     const [notifications, setNotifications] = useState<NotificationItem[]>([]);
     const [activeToast, setActiveToast] = useState<NotificationItem | null>(null);
     const [emergencySos, setEmergencySos] = useState<NotificationItem | null>(null);
+    const [securityAlert, setSecurityAlert] = useState<NotificationItem | null>(null);
     const [isOpen, setIsOpen] = useState(false);
     const [soundEnabled, setSoundEnabled] = useState(true);
     const soundEnabledRef = useRef(true);
@@ -142,7 +153,10 @@ export default function AdminNotificationListener() {
     const pushNotification = (item: NotificationItem) => {
         setNotifications(prev => [item, ...prev.slice(0, 39)]);
 
-        if (item.type === "SOS") {
+        if (item.type === "SECURITY") {
+            setSecurityAlert(item);
+            playNotificationSound("SOS");
+        } else if (item.type === "SOS") {
             setEmergencySos(item);
             playNotificationSound("SOS");
         } else {
@@ -175,7 +189,30 @@ export default function AdminNotificationListener() {
                     const data = parsed.data || {};
                     const rideId = parsed.rideId || data.id || `evt-${Date.now()}`;
 
-                    if (eventType === "SOS_ALERT") {
+                    if (eventType === "SECURITY_INTRUSION_ALERT") {
+                        const inc = parsed.incident || data;
+                        const notifKey = `sec-${Date.now()}-${inc.ip || ""}`;
+                        pushNotification({
+                            id: notifKey,
+                            type: "SECURITY",
+                            title: "🛑 CYBER INTRUSION ATTEMPT BLOCKED",
+                            message: `${inc.attackType || "Intrusion"} intercepted from ${inc.ip} (${inc.city || "Monrovia"}, ${inc.country || "LR"}). Target: ${inc.attemptedUsername || "System Admin"}`,
+                            details: {
+                                ip: inc.ip,
+                                city: inc.city,
+                                country: inc.country,
+                                region: inc.region,
+                                deviceFingerprint: inc.deviceFingerprint,
+                                attemptedUsername: inc.attemptedUsername,
+                                attackType: inc.attackType,
+                                maliciousPayload: inc.maliciousPayload,
+                                targetUrl: inc.targetUrl,
+                                severity: inc.severity || "CRITICAL"
+                            },
+                            timestamp: new Date(),
+                            read: false
+                        });
+                    } else if (eventType === "SOS_ALERT") {
                         const notifKey = `sos-${rideId}-${Date.now()}`;
                         pushNotification({
                             id: notifKey,
@@ -274,7 +311,28 @@ export default function AdminNotificationListener() {
                                 processedIdsRef.current.add(notifKey);
                                 const d = ev.details || {};
 
-                                if (ev.action === "EMERGENCY_SOS_PANIC") {
+                                if (ev.action === "SECURITY_INTRUSION_ALERT") {
+                                    pushNotification({
+                                        id: notifKey,
+                                        type: "SECURITY",
+                                        title: "🛑 CYBER INTRUSION ATTEMPT BLOCKED",
+                                        message: `${d.attackType || "Attack"} intercepted from ${d.ip} (${d.city || "Unknown"}, ${d.country || "LR"}). Target: ${d.attemptedUsername || "Platform"}`,
+                                        details: {
+                                            ip: d.ip,
+                                            city: d.city,
+                                            country: d.country,
+                                            region: d.region,
+                                            deviceFingerprint: d.deviceFingerprint,
+                                            attemptedUsername: d.attemptedUsername,
+                                            attackType: d.attackType,
+                                            maliciousPayload: d.maliciousPayload,
+                                            targetUrl: d.targetUrl,
+                                            severity: d.severity || "CRITICAL"
+                                        },
+                                        timestamp: new Date(ev.createdAt),
+                                        read: false
+                                    });
+                                } else if (ev.action === "EMERGENCY_SOS_PANIC") {
                                     pushNotification({
                                         id: notifKey,
                                         type: "SOS",
@@ -401,13 +459,15 @@ export default function AdminNotificationListener() {
                                     <div key={n.id} className={`p-4 transition-colors hover:bg-slate-50 ${n.type === "SOS" ? "bg-red-100/70 border-l-4 border-red-600" : !n.read ? "bg-red-50/40" : ""}`}>
                                         <div className="flex items-start justify-between gap-2 mb-1">
                                             <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${
-                                                n.type === "SOS"
+                                                n.type === "SECURITY"
+                                                    ? "bg-black text-red-400 border-red-600 animate-pulse"
+                                                    : n.type === "SOS"
                                                     ? "bg-red-600 text-white border-red-700 animate-pulse"
                                                     : n.type === "REQUEST"
                                                     ? "bg-red-100 text-red-700 border-red-200"
                                                     : "bg-emerald-100 text-emerald-700 border-emerald-200"
                                             }`}>
-                                                {n.type === "SOS" ? "🚨 SOS EMERGENCY" : n.type === "REQUEST" ? "NEW REQUEST" : "ACCEPTED"}
+                                                {n.type === "SECURITY" ? "🛑 CYBER INTRUSION" : n.type === "SOS" ? "🚨 SOS EMERGENCY" : n.type === "REQUEST" ? "NEW REQUEST" : "ACCEPTED"}
                                             </span>
                                             <span className="text-[10px] text-slate-400 font-mono">
                                                 {new Date(n.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
@@ -548,6 +608,100 @@ export default function AdminNotificationListener() {
                                 className="w-full py-2.5 text-center text-xs font-bold text-gray-500 hover:text-gray-900"
                             >
                                 Acknowledge &amp; Dismiss Alert
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* CYBER INTRUSION ALERT MODAL / OVERLAY */}
+            {securityAlert && (
+                <div className="fixed inset-0 z-[450] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="relative w-full max-w-lg bg-slate-950 text-white rounded-3xl shadow-2xl border-2 border-red-500 overflow-hidden animate-in zoom-in-95 duration-200">
+                        {/* Header Banner */}
+                        <div className="bg-gradient-to-r from-red-600 via-red-700 to-black text-white p-6 relative overflow-hidden">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-white text-red-600 flex items-center justify-center shadow-lg animate-pulse">
+                                        <ShieldAlert size={28} />
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] font-black uppercase tracking-widest bg-black/40 text-red-200 px-2.5 py-0.5 rounded-full inline-block border border-red-400/30">
+                                            SHIELD WAF • INTRUSION INTERCEPTED
+                                        </span>
+                                        <h3 className="text-xl font-black tracking-tight mt-0.5">CYBER ATTACK BLOCKED</h3>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setSecurityAlert(null)}
+                                    className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Intruder Telemetry & Coordinates */}
+                        <div className="p-6 space-y-4">
+                            <div className="grid grid-cols-2 gap-3 text-xs">
+                                <div className="p-3 bg-white/5 border border-white/10 rounded-2xl">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Targeted Username</span>
+                                    <span className="text-sm font-black text-yellow-400 truncate block mt-0.5">
+                                        {securityAlert.details?.attemptedUsername || "Anonymous Attacker"}
+                                    </span>
+                                </div>
+                                <div className="p-3 bg-white/5 border border-white/10 rounded-2xl">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Attack Vector</span>
+                                    <span className="text-sm font-black text-red-400 truncate block mt-0.5">
+                                        {securityAlert.details?.attackType || "INTRUSION"}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Attacker Origin & Geolocation */}
+                            <div className="p-4 bg-red-950/40 border border-red-500/30 rounded-2xl space-y-2 text-xs">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-slate-400 font-bold uppercase text-[10px]">Attacker Origin IP:</span>
+                                    <span className="font-mono font-black text-red-300 text-sm">{securityAlert.details?.ip || "Unknown"}</span>
+                                </div>
+                                <div className="flex items-center justify-between border-t border-white/5 pt-2">
+                                    <span className="text-slate-400 font-bold uppercase text-[10px]">Physical Geolocation:</span>
+                                    <span className="font-bold text-white">
+                                        📍 {securityAlert.details?.city || "Unknown City"}, {securityAlert.details?.region || ""}, {securityAlert.details?.country || "LR"}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between border-t border-white/5 pt-2">
+                                    <span className="text-slate-400 font-bold uppercase text-[10px]">Device / Hardware Fingerprint:</span>
+                                    <span className="font-mono text-[11px] text-emerald-400 truncate max-w-[200px]">
+                                        {securityAlert.details?.deviceFingerprint || "N/A"}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Malicious Payload Intercepted */}
+                            {securityAlert.details?.maliciousPayload && (
+                                <div className="p-3 bg-black/60 border border-white/10 rounded-2xl">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                                        Intercepted Exploit Payload:
+                                    </span>
+                                    <pre className="text-[11px] font-mono text-red-300 bg-red-950/20 p-2 rounded-xl overflow-x-auto whitespace-pre-wrap break-all border border-red-900/40">
+                                        {securityAlert.details.maliciousPayload}
+                                    </pre>
+                                </div>
+                            )}
+
+                            {/* Defense Status & Action */}
+                            <div className="flex items-center justify-between p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl text-xs text-emerald-300">
+                                <span className="font-bold flex items-center gap-1.5">
+                                    <CheckCircle2 size={15} /> Request Terminated • IP Auto-Blacklisted (15m)
+                                </span>
+                            </div>
+
+                            <button
+                                onClick={() => setSecurityAlert(null)}
+                                className="w-full py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-all shadow-lg active:scale-95 cursor-pointer"
+                            >
+                                Acknowledge &amp; Dismiss Incident
                             </button>
                         </div>
                     </div>

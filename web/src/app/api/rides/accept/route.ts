@@ -36,6 +36,23 @@ export async function POST(req: Request) {
             });
         }
 
+        // Validate driver wallet eligibility before allowing ride acceptance
+        const { checkDriverEligibility, ensureDriverWallet } = await import("@/lib/walletService");
+        await ensureDriverWallet(driverProfile.id, {
+            userId: user.userId,
+            email: user.email,
+        });
+        const eligibility = await checkDriverEligibility(driverProfile.id);
+        if (!eligibility.eligible) {
+            return NextResponse.json({
+                error: `Insufficient Wallet Balance. Your balance is ${eligibility.balance.toFixed(2)} LRD. You need at least ${eligibility.minBalance.toFixed(2)} LRD to accept rides. Please fund your wallet to continue.`,
+                code: "INSUFFICIENT_WALLET_BALANCE",
+                balance: eligibility.balance,
+                minBalance: eligibility.minBalance,
+                shortfall: eligibility.shortfall,
+            }, { status: 402 });
+        }
+
         const result = await DispatchEngine.acceptRideOffer(
             rideId,
             driverProfile.id,

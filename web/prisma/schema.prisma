@@ -216,6 +216,46 @@ model DriverProfile {
   rides        Ride[]
   locationLogs LocationLog[]
   rideOffers   RideOffer[]
+  wallet       DriverWallet?
+}
+
+model DriverWallet {
+  id               String   @id @default(cuid())
+  driverId         String   @unique
+  driver           DriverProfile @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  balance          Float    @default(0)       // Current available balance
+  pendingBalance   Float    @default(0)       // Pending (unconfirmed) credits
+  currency         String   @default("LRD")  // LRD or USD
+  status           String   @default("ACTIVE")  // ACTIVE, SUSPENDED, FROZEN
+  totalDeposited   Float    @default(0)       // Lifetime total funded
+  totalDeducted    Float    @default(0)       // Lifetime total deducted
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  transactions     WalletTransaction[]
+}
+
+model WalletTransaction {
+  id              String   @id @default(cuid())
+  walletId        String
+  wallet          DriverWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  rideId          String?                       // Linked ride (for deposits/deductions)
+  type            String                        // CREDIT, DEBIT, REFUND, ADJUSTMENT
+  category        String                        // FUNDING, RIDE_DEPOSIT, RIDE_REFUND, ADMIN_ADJUSTMENT
+  amount          Float
+  balanceBefore   Float
+  balanceAfter    Float
+  currency        String   @default("LRD")
+  provider        String?                       // MTN, ORANGE, ADMIN, SYSTEM
+  externalRef     String?                       // Mobile money transaction reference
+  idempotencyKey  String?  @unique              // Prevent duplicate processing
+  status          String   @default("SUCCESS")  // PENDING, SUCCESS, FAILED
+  note            String?                       // Admin note or reason
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([walletId, createdAt])
+  @@index([rideId])
 }
 
 model LocationLog {
@@ -322,6 +362,8 @@ model Ride {
   isArchived    Boolean        @default(false)
   shareToken    String?
   rideOffers    RideOffer[]
+  depositDeducted Boolean      @default(false)  // True once wallet deposit has been deducted
+  depositAmount   Float?                         // Amount deducted from driver wallet
 }
 
 model PaymentTransaction {

@@ -1,0 +1,40 @@
+{
+  "mtn": {
+    "enabled": true,
+    "providerName": "MTN Mobile Money",
+    "merchantNumber": "0886000100",
+    "businessName": "AfriCab Transport Services Inc.",
+    "apiUser": "mtn-momo-user-placeholder-uuid",
+    "apiKey": "••••••••••••••••••••••••",
+    "subscriptionKey": "••••••••••••••••••••••••",
+    "targetEnvironment": "SANDBOX",
+    "webhookSecret": "whsec_momo_placeholder_key",
+    "currency": "LRD",
+    "ussdPromptEnabled": true
+  },
+  "orange": {
+    "enabled": true,
+    "providerName": "Orange Money",
+    "merchantNumber": "0777000200",
+    "businessName": "AfriCab Transport Services Inc.",
+    "clientId": "om_client_placeholder_id",
+    "clientSecret": "••••••••••••••••••••••••",
+    "merchantKey": "••••••••••••••••••••••••",
+    "targetEnvironment": "SANDBOX",
+    "webhookSecret": "whsec_orange_placeholder_key",
+    "currency": "LRD",
+    "ussdPromptEnabled": true
+  },
+  "depositRules": {
+    "depositMode": "PERCENTAGE",
+    "depositPercentage": 20,
+    "depositFixedAmount": 2.50,
+    "currency": "USD",
+    "minDeposit": 1.00,
+    "maxDeposit": 25.00,
+    "autoInitiateOnStart": true,
+    "requireCustomerAuth": true,
+    "autoRefundOnCancel": true
+  },
+  "lastUpdated": "2026-10-18T17:35:00.000Z"
+}

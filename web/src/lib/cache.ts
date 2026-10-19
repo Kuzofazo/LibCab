@@ -37,6 +37,10 @@ class MemoryCache {
         this.store.delete(key);
     }
 
+    public delete(key: string): void {
+        this.store.delete(key);
+    }
+
     public clear(): void {
         this.store.clear();
     }

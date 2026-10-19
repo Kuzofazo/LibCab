@@ -65,9 +65,19 @@ export class DispatchEngine {
                 },
             });
 
+            // Filter drivers by wallet balance eligibility
+            const { checkDriverEligibility } = await import("@/lib/walletService");
+            const eligibleDrivers: typeof availableDrivers = [];
+            for (const d of availableDrivers) {
+                const el = await checkDriverEligibility(d.id).catch(() => ({ eligible: true }));
+                if (el.eligible) {
+                    eligibleDrivers.push(d);
+                }
+            }
+
             const matched: MatchedDriver[] = [];
 
-            for (const driver of availableDrivers) {
+            for (const driver of eligibleDrivers) {
                 if (driver.currentLat === null || driver.currentLng === null) continue;
 
                 const distanceKm = calculateDistanceKm(
@@ -278,6 +288,17 @@ export class DispatchEngine {
                     success: false,
                     code: "DRIVER_UNAVAILABLE",
                     message: "Driver account is pending review or not approved.",
+                };
+            }
+
+            // Verify wallet eligibility
+            const { checkDriverEligibility } = await import("@/lib/walletService");
+            const eligibility = await checkDriverEligibility(driverProfileId).catch(() => ({ eligible: true }));
+            if (!eligibility.eligible) {
+                return {
+                    success: false,
+                    code: "DRIVER_UNAVAILABLE",
+                    message: "Insufficient wallet balance. Please fund your wallet to accept rides.",
                 };
             }
 

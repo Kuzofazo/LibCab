@@ -19,13 +19,15 @@ import {
     Radio,
     Star,
     Building2,
-    UserCheck
+    UserCheck,
+    Wallet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const menuItems = [
     { icon: LayoutDashboard, label: "DASHBOARD", href: "/admin" },
     { icon: UserCheck, label: "DRIVER SIGN-UP", href: "/admin/driver-signups", isNewFeature: true },
+    { icon: Wallet, label: "DRIVER WALLETS", href: "/admin/wallets", isNewFeature: true },
     { icon: Radio, label: "FLEET TRACKING", href: "/admin/fleet" },
     { icon: Building2, label: "COMPANIES", href: "/admin/companies" },
     { icon: Map, label: "DISPATCH", href: "/admin/dispatch" },
@@ -45,6 +47,7 @@ export default function AdminSidebar() {
     const [showUpBtn, setShowUpBtn] = useState(false);
     const [showDownBtn, setShowDownBtn] = useState(false);
     const [pendingCount, setPendingCount] = useState<number>(0);
+    const [ineligibleWallets, setIneligibleWallets] = useState<number>(0);
 
     useEffect(() => {
         const fetchPendingCount = async () => {
@@ -63,8 +66,23 @@ export default function AdminSidebar() {
             } catch {}
         };
 
+        const fetchWalletCount = async () => {
+            try {
+                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                if (!token) return;
+                const res = await fetch("/api/admin/wallets?filter=INELIGIBLE", {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    setIneligibleWallets(data?.stats?.ineligibleDrivers ?? 0);
+                }
+            } catch {}
+        };
+
         fetchPendingCount();
-        const interval = setInterval(fetchPendingCount, 15000);
+        fetchWalletCount();
+        const interval = setInterval(() => { fetchPendingCount(); fetchWalletCount(); }, 30000);
         return () => clearInterval(interval);
     }, []);
 
@@ -189,6 +207,14 @@ export default function AdminSidebar() {
                                         isActive ? "bg-black text-amber-400" : "bg-amber-500 text-black shadow-lg shadow-amber-500/30"
                                     )}>
                                         {pendingCount}
+                                    </span>
+                                )}
+                                {item.href === "/admin/wallets" && ineligibleWallets > 0 && (
+                                    <span className={cn(
+                                        "relative z-10 ml-auto px-2 py-0.5 text-[9px] font-black rounded-full transition-colors flex items-center justify-center",
+                                        isActive ? "bg-black text-orange-400" : "bg-orange-500 text-black shadow-lg shadow-orange-500/30"
+                                    )}>
+                                        {ineligibleWallets}
                                     </span>
                                 )}
                             </Link>

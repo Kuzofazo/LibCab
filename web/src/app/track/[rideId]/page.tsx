@@ -17,7 +17,8 @@ import {
     RefreshCw,
     ExternalLink,
     Copy,
-    Check
+    Check,
+    MessageCircle
 } from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -444,8 +445,20 @@ export default function PublicTrackRidePage() {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-1 text-[11px] text-gray-500">
-                        <RefreshCw size={12} className="animate-spin" /> Live telemetry active
+                    <div className="flex items-center gap-3">
+                        <a
+                            href={`https://wa.me/231770000000?text=${encodeURIComponent(`Hello AfriCab Dispatch Desk, I am inquiring about active Ride #${rideId || ""}. Passenger: ${ride?.passengerName || "Customer"}, Destination: ${ride?.destAddress || "N/A"}.`)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-4 py-2 bg-[#25D366] hover:bg-[#1ebd5b] text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-md shrink-0 cursor-pointer"
+                        >
+                            <MessageCircle size={15} className="fill-current" />
+                            <span>WhatsApp Dispatch</span>
+                        </a>
+
+                        <div className="flex items-center gap-1 text-[11px] text-gray-500">
+                            <RefreshCw size={12} className="animate-spin" /> Live telemetry active
+                        </div>
                     </div>
                 </div>
             </main>

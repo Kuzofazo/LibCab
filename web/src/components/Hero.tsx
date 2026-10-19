@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Navigation, Star, TrendingUp, Shield, Zap, Wallet, ArrowRight, User } from "lucide-react";
+import { Navigation, Star, TrendingUp, Shield, Zap, Wallet, ArrowRight, User, MessageCircle } from "lucide-react";
+import { triggerWhatsAppBooking } from "@/components/WhatsAppFloatingButton";
 
 
 export default function Hero() {
@@ -191,11 +192,29 @@ export default function Hero() {
                                 </button>
                             </div>
                         </div>
-                        <button
-                            onClick={handleSeePrices}
-                            className={`w-full mt-6 p-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer ${isFormComplete ? 'bg-gradient-to-r from-red-600 to-red-500 text-white hover:from-red-700 hover:to-red-600 hover:scale-[1.02] active:scale-[0.98] shadow-red-500/30' : 'bg-red-600/90 hover:bg-red-600 text-white hover:scale-[1.01] active:scale-[0.98]'}`}>
-                            Request Ride <ArrowRight size={18} />
-                        </button>
+                        <div className="flex flex-col sm:flex-row gap-2 mt-5">
+                            <button
+                                onClick={handleSeePrices}
+                                className={`flex-1 p-3.5 sm:p-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer text-sm ${isFormComplete ? 'bg-gradient-to-r from-red-600 to-red-500 text-white hover:from-red-700 hover:to-red-600 hover:scale-[1.02] active:scale-[0.98] shadow-red-500/30' : 'bg-red-600/90 hover:bg-red-600 text-white hover:scale-[1.01] active:scale-[0.98]'}`}>
+                                Request Ride <ArrowRight size={16} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => triggerWhatsAppBooking({
+                                    name: name.trim(),
+                                    pickup: pickup.trim(),
+                                    destination: destination.trim(),
+                                    paymentMethod: paymentMethod === "MOMO" ? "MOMO" : "CARD"
+                                })}
+                                className="flex-1 p-3.5 sm:p-4 rounded-xl font-extrabold transition-all flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#1ebd5b] text-white shadow-lg shadow-emerald-500/25 hover:scale-[1.02] active:scale-[0.98] text-sm cursor-pointer"
+                            >
+                                <MessageCircle size={16} className="fill-current" />
+                                <span>WhatsApp (10s)</span>
+                            </button>
+                        </div>
+                        <p className="text-center text-[11px] text-gray-400 mt-3 font-medium">
+                            ⚡ No account required • Instant WhatsApp dispatch
+                        </p>
                     </div>
                 </div>
 

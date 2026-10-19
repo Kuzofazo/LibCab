@@ -70,7 +70,7 @@ export async function PATCH(req: Request) {
         if (isOnline === true) {
             const currentProfile = await prisma.driverProfile.findUnique({
                 where: { userId: payload.userId },
-                select: { approvalStatus: true, rejectionReason: true }
+                select: { approvalStatus: true, rejectionReason: true, id: true }
             });
 
             if (currentProfile && currentProfile.approvalStatus && currentProfile.approvalStatus !== "APPROVED") {
@@ -84,7 +84,29 @@ export async function PATCH(req: Request) {
                     rejectionReason: currentProfile.rejectionReason
                 }, { status: 403 });
             }
+
+            // Check wallet minimum balance requirement
+            if (currentProfile?.id) {
+                try {
+                    const { checkDriverEligibility, ensureDriverWallet } = await import("@/lib/walletService");
+                    await ensureDriverWallet(currentProfile.id);
+                    const eligibility = await checkDriverEligibility(currentProfile.id);
+                    if (!eligibility.eligible) {
+                        return NextResponse.json({
+                            error: `Insufficient Wallet Balance. Your current balance is ${eligibility.balance.toFixed(2)} LRD. You need at least ${eligibility.minBalance.toFixed(2)} LRD to go online and receive ride requests. Please fund your wallet to continue.`,
+                            code: "INSUFFICIENT_WALLET_BALANCE",
+                            balance: eligibility.balance,
+                            minBalance: eligibility.minBalance,
+                            shortfall: eligibility.shortfall,
+                        }, { status: 402 });
+                    }
+                } catch (walletErr) {
+                    console.error("Wallet eligibility check failed:", walletErr);
+                    // Non-blocking: if wallet check fails due to DB error, allow online
+                }
+            }
         }
+
 
         const updatedProfile = await prisma.driverProfile.update({
             where: { userId: payload.userId },
