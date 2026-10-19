@@ -106,7 +106,11 @@ export async function POST(req: Request) {
             scheduledFor,
             notes,
             stops,
-            promoCode
+            promoCode,
+            // ❄️ Ride Comfort Preferences
+            acPreference,
+            atmospherePreference,
+            luggageAssistance
         } = body;
 
         if ((!riderId && !guestPhone) || !originAddress || !destAddress) {
@@ -219,6 +223,10 @@ export async function POST(req: Request) {
                 scheduledFor: scheduledDate,
                 scheduledStatus: isRideScheduled ? "CONFIRMED" : null,
                 notes: notes || undefined,
+                // ❄️ Ride Comfort Preferences
+                acPreference: acPreference || "NO_PREFERENCE",
+                atmospherePreference: atmospherePreference || "NORMAL",
+                luggageAssistance: luggageAssistance === true,
                 stops: stops && Array.isArray(stops) && stops.length > 0 ? {
                     create: stops.map((s: any, idx: number) => ({
                         sequence: idx + 1,

@@ -387,6 +387,11 @@ model Ride {
 
   // Lost Item Recovery Reports
   lostItemReports   LostItemReport[]
+
+  // ❄️ Ride Comfort & AC Preferences
+  acPreference          String?   @default("AC_ON")         // AC_ON, WINDOWS_DOWN, NO_PREFERENCE
+  atmospherePreference  String?   @default("NORMAL")        // NORMAL, QUIET
+  luggageAssistance     Boolean   @default(false)
 }
 
 model PaymentTransaction {

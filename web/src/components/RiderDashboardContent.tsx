@@ -152,6 +152,14 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     const [promoLoading, setPromoLoading] = useState(false);
     const [promoError, setPromoError] = useState<string | null>(null);
 
+    // ❄️ Ride Comfort Preferences State
+    const [ridePreferences, setRidePreferences] = useState({
+        acMode: "AC_ON" as "AC_ON" | "WINDOWS_DOWN" | "NO_PREFERENCE",
+        rideAtmosphere: "NORMAL" as "QUIET" | "NORMAL",
+        luggageAssistance: false,
+    });
+    const [showPreferencesPanel, setShowPreferencesPanel] = useState(false);
+
     // Mid-Trip Stop State
     const [isMidTripAddOpen, setIsMidTripAddOpen] = useState(false);
     const [midTripStopAddress, setMidTripStopAddress] = useState("");
@@ -552,7 +560,16 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                     fare: finalFare,
                     stops: intermediateStops.filter(s => s.address.trim().length > 0),
                     promoCode: appliedPromo?.code,
-                    discountAmount: appliedPromo?.discountAmount
+                    discountAmount: appliedPromo?.discountAmount,
+                    // ❄️ Ride Comfort Preferences
+                    acPreference: ridePreferences.acMode,
+                    atmospherePreference: ridePreferences.rideAtmosphere,
+                    luggageAssistance: ridePreferences.luggageAssistance,
+                    notes: [
+                        ridePreferences.acMode === "AC_ON" ? "❄️ AC On Please" : ridePreferences.acMode === "WINDOWS_DOWN" ? "🌬️ Windows Down" : "",
+                        ridePreferences.rideAtmosphere === "QUIET" ? "🤫 Quiet Ride" : "",
+                        ridePreferences.luggageAssistance ? "🧳 Needs Luggage Assistance" : ""
+                    ].filter(Boolean).join(" · ") || undefined
                 })
             });
 
@@ -1477,6 +1494,136 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
                                 {promoError && (
                                     <p className="text-[11px] text-rose-600 font-bold">{promoError}</p>
+                                )}
+                            </div>
+
+                            {/* ❄️ Ride Comfort & AC Preference Controls */}
+                            <div className="bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
+                                {/* Collapsible Header */}
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPreferencesPanel(prev => !prev)}
+                                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-100 transition-colors"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-base">
+                                            {ridePreferences.acMode === "AC_ON" ? "❄️" : ridePreferences.acMode === "WINDOWS_DOWN" ? "🌬️" : "🚗"}
+                                        </span>
+                                        <div className="text-left">
+                                            <p className="text-[11px] font-black uppercase tracking-wider text-slate-600">Ride Preferences</p>
+                                            <p className="text-[10px] text-slate-400 font-medium">
+                                                {[
+                                                    ridePreferences.acMode === "AC_ON" ? "AC On" : ridePreferences.acMode === "WINDOWS_DOWN" ? "Windows Down" : "No AC Pref",
+                                                    ridePreferences.rideAtmosphere === "QUIET" ? "· Quiet" : "",
+                                                    ridePreferences.luggageAssistance ? "· Luggage Help" : ""
+                                                ].join("").trim() || "Tap to set comfort preferences"}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <span className={`text-slate-400 text-sm font-black transition-transform duration-200 ${showPreferencesPanel ? "rotate-90" : ""}`}>›</span>
+                                </button>
+
+                                {/* Expanded Panel */}
+                                {showPreferencesPanel && (
+                                    <div className="px-4 pb-4 pt-1 space-y-4 border-t border-slate-100">
+
+                                        {/* AC / Temperature */}
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-2">🌡️ Temperature Preference</p>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {([
+                                                    { key: "AC_ON", label: "❄️ AC On", sub: "Cool & fresh", color: "bg-blue-50 border-blue-400 text-blue-900" },
+                                                    { key: "WINDOWS_DOWN", label: "🌬️ Windows", sub: "Natural air", color: "bg-emerald-50 border-emerald-400 text-emerald-900" },
+                                                    { key: "NO_PREFERENCE", label: "🚗 Any", sub: "No pref.", color: "bg-slate-100 border-slate-300 text-slate-700" }
+                                                ] as const).map(opt => (
+                                                    <button
+                                                        key={opt.key}
+                                                        type="button"
+                                                        onClick={() => setRidePreferences(p => ({ ...p, acMode: opt.key }))}
+                                                        className={`p-2.5 rounded-xl border-2 text-center transition-all ${
+                                                            ridePreferences.acMode === opt.key
+                                                                ? opt.color + " shadow-sm font-black"
+                                                                : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
+                                                        }`}
+                                                    >
+                                                        <p className="text-xs font-black leading-tight">{opt.label}</p>
+                                                        <p className="text-[9px] font-medium mt-0.5 opacity-70">{opt.sub}</p>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Atmosphere */}
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-2">🔊 Ride Atmosphere</p>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {([
+                                                    { key: "NORMAL", label: "🎵 Normal", sub: "Music & conversation OK" },
+                                                    { key: "QUIET", label: "🤫 Quiet Ride", sub: "Minimal talking please" }
+                                                ] as const).map(opt => (
+                                                    <button
+                                                        key={opt.key}
+                                                        type="button"
+                                                        onClick={() => setRidePreferences(p => ({ ...p, rideAtmosphere: opt.key }))}
+                                                        className={`p-2.5 rounded-xl border-2 text-left transition-all ${
+                                                            ridePreferences.rideAtmosphere === opt.key
+                                                                ? "bg-slate-900 border-slate-900 text-white shadow-sm"
+                                                                : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                                                        }`}
+                                                    >
+                                                        <p className="text-xs font-black">{opt.label}</p>
+                                                        <p className="text-[9px] font-medium mt-0.5 opacity-70">{opt.sub}</p>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Luggage Assistance */}
+                                        <div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setRidePreferences(p => ({ ...p, luggageAssistance: !p.luggageAssistance }))}
+                                                className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${
+                                                    ridePreferences.luggageAssistance
+                                                        ? "bg-amber-50 border-amber-400 text-amber-900"
+                                                        : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2.5">
+                                                    <span className="text-xl">🧳</span>
+                                                    <div className="text-left">
+                                                        <p className="text-xs font-black">Luggage Assistance</p>
+                                                        <p className="text-[9px] opacity-70 font-medium">I have bags/suitcases that need trunk loading help</p>
+                                                    </div>
+                                                </div>
+                                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                                    ridePreferences.luggageAssistance
+                                                        ? "bg-amber-500 border-amber-500"
+                                                        : "border-slate-300"
+                                                }`}>
+                                                    {ridePreferences.luggageAssistance && (
+                                                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                        </svg>
+                                                    )}
+                                                </div>
+                                            </button>
+                                        </div>
+
+                                        {/* Preference Summary Badge */}
+                                        <div className="flex flex-wrap gap-1.5">
+                                            <span className="text-[10px] font-black uppercase text-slate-400">Sent to driver:</span>
+                                            <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-bold">
+                                                {ridePreferences.acMode === "AC_ON" ? "❄️ AC On" : ridePreferences.acMode === "WINDOWS_DOWN" ? "🌬️ Windows Down" : "🚗 No AC Pref"}
+                                            </span>
+                                            <span className="text-[10px] bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-full font-bold">
+                                                {ridePreferences.rideAtmosphere === "QUIET" ? "🤫 Quiet" : "🎵 Normal"}
+                                            </span>
+                                            {ridePreferences.luggageAssistance && (
+                                                <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-bold">🧳 Luggage</span>
+                                            )}
+                                        </div>
+                                    </div>
                                 )}
                             </div>
 

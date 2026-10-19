@@ -1850,6 +1850,32 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 </div>
                                             </div>
 
+                                            {/* ❄️ Customer Ride Preferences */}
+                                            {(ride.acPreference || ride.atmospherePreference || ride.luggageAssistance || ride.notes) && (
+                                                <div className="flex flex-wrap gap-1.5 px-1">
+                                                    <span className="text-[9px] font-black uppercase text-slate-400 w-full">Customer requests:</span>
+                                                    {ride.acPreference && ride.acPreference !== "NO_PREFERENCE" && (
+                                                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                                                            ride.acPreference === "AC_ON"
+                                                                ? "bg-blue-50 text-blue-700 border-blue-200"
+                                                                : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                                        }`}>
+                                                            {ride.acPreference === "AC_ON" ? "❄️ AC On" : "🌬️ Windows Down"}
+                                                        </span>
+                                                    )}
+                                                    {ride.atmospherePreference === "QUIET" && (
+                                                        <span className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-slate-100 text-slate-700 border-slate-200">
+                                                            🤫 Quiet Ride
+                                                        </span>
+                                                    )}
+                                                    {ride.luggageAssistance && (
+                                                        <span className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-amber-50 text-amber-700 border-amber-200">
+                                                            🧳 Luggage Help
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             <button
                                                 disabled={acceptingRideId === ride.id}
                                                 onClick={() => handleAcceptRide(ride.id)}
