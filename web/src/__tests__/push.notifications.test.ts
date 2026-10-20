@@ -36,6 +36,11 @@ vi.mock('../lib/sse', () => ({
     },
 }));
 
+vi.mock('@/lib/walletService', () => ({
+    checkDriverEligibility: vi.fn().mockResolvedValue({ eligible: true }),
+    deductRideDeposit: vi.fn().mockResolvedValue({ success: true }),
+}));
+
 describe('Real-Time Ride Requests & Push Notification Matching System', () => {
     beforeEach(() => {
         vi.clearAllMocks();

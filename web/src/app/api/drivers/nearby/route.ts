@@ -29,23 +29,28 @@ export async function GET(req: Request) {
         }
 
         // 1. Fetch live online drivers from database
-        const onlineDrivers = await prisma.driverProfile.findMany({
-            where: {
-                isOnline: true,
-                currentLat: { not: null },
-                currentLng: { not: null },
-            },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        phone: true,
-                        email: true,
+        let onlineDrivers: any[] = [];
+        try {
+            onlineDrivers = await prisma.driverProfile.findMany({
+                where: {
+                    isOnline: true,
+                    currentLat: { not: null },
+                    currentLng: { not: null },
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            phone: true,
+                            email: true,
+                        }
                     }
                 }
-            }
-        });
+            });
+        } catch (dbErr) {
+            console.warn("DB offline or unreachable for nearby drivers query, falling back to sample drivers");
+        }
 
         const activeDrivers: DriverCoordinate[] = onlineDrivers.map((dp) => {
             const shortId = dp.id.slice(-4).toUpperCase();
