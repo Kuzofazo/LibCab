@@ -35,6 +35,8 @@ export async function POST(req: Request) {
         let dbAvailable = true;
 
         try {
+            const { ensureDriverApprovalSchema } = await import("@/lib/driverApprovalDb");
+            await ensureDriverApprovalSchema();
             user = await prisma.user.findUnique({
                 where: { email: normalizedEmail },
                 include: { driverProfile: true },

@@ -132,6 +132,42 @@
       "totalDeducted": 200,
       "createdAt": "2026-10-18T18:09:47.970Z",
       "updatedAt": "2026-10-18T18:09:48.007Z"
+    },
+    {
+      "id": "wallet_cmwl12wws0001133yemcd5fcu",
+      "driverId": "cmwl12wws0001133yemcd5fcu",
+      "driverUserId": "cmwl12wws0000133yyioljq9l",
+      "driverName": "Oscar Devine Nush Genseh",
+      "driverEmail": "oscar@africab.com",
+      "driverPhone": "+231775403417",
+      "vehicleModel": "Toyota Corolla 2020",
+      "licensePlate": "A1243",
+      "balance": 1000,
+      "pendingBalance": 0,
+      "currency": "LRD",
+      "status": "ACTIVE",
+      "totalDeposited": 1000,
+      "totalDeducted": 0,
+      "createdAt": "2026-11-17T18:40:25.388Z",
+      "updatedAt": "2026-11-17T18:40:25.388Z"
+    },
+    {
+      "id": "wallet_cmwl17bja0007jvty3um5eakh",
+      "driverId": "cmwl17bja0007jvty3um5eakh",
+      "driverUserId": "cmwl17bja0006jvtyoru21k09",
+      "driverName": "Success Blessing Rue",
+      "driverEmail": "success@africab.com",
+      "driverPhone": "+2316329903",
+      "vehicleModel": "Jetour 2025",
+      "licensePlate": "A9876",
+      "balance": 1000,
+      "pendingBalance": 0,
+      "currency": "LRD",
+      "status": "ACTIVE",
+      "totalDeposited": 1000,
+      "totalDeducted": 0,
+      "createdAt": "2026-11-17T18:40:26.442Z",
+      "updatedAt": "2026-11-17T18:40:26.443Z"
     }
   ],
   "transactions": [

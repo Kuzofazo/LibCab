@@ -46,6 +46,7 @@ export default function UsersPage() {
     const [isDeleting, setIsDeleting] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [fetchError, setFetchError] = useState<string | null>(null);
 
     // Modal States
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -78,24 +79,37 @@ export default function UsersPage() {
     };
 
     useEffect(() => {
-        const userStr = localStorage.getItem("user");
-        if (userStr) {
+        const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+        const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+        if (!userStr || !token) {
+            router.push("/login");
+            return;
+        }
+
+        try {
             const user = JSON.parse(userStr);
             if (user.role === "SUPER_ADMIN" || user.role === "ADMIN") {
                 setIsSuperAdmin(user.role === "SUPER_ADMIN");
                 fetchUsers();
             } else {
-                router.push("/dashboard");
+                router.push("/login");
             }
-        } else {
+        } catch {
             router.push("/login");
         }
     }, [router]);
 
     async function fetchUsers(showSuccessToast = false) {
         setLoading(true);
+        setFetchError(null);
         try {
-            const token = localStorage.getItem("token");
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            if (!token) {
+                router.push("/login");
+                return;
+            }
+
             const res = await fetch(`/api/users?_t=${Date.now()}`, {
                 cache: "no-store",
                 headers: {
@@ -104,19 +118,31 @@ export default function UsersPage() {
                     "Pragma": "no-cache"
                 }
             });
+
+            if (res.status === 401) {
+                showToast("Your session has expired. Please log in again.", "error");
+                setTimeout(() => router.push("/login"), 1200);
+                return;
+            }
+
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                throw new Error(err.error || "Failed to fetch users");
+                throw new Error(err.error || `Failed to fetch users (status: ${res.status})`);
             }
+
             const data = await res.json();
             if (Array.isArray(data)) {
                 setUsers(data);
+                setFetchError(null);
                 if (showSuccessToast) {
                     showToast(`Synchronized ${data.length} accounts directly from database`, "success");
                 }
+            } else {
+                throw new Error("Invalid response format received from server");
             }
         } catch (error: any) {
             console.error("Failed to fetch users", error);
+            setFetchError(error?.message || "Failed to sync with database");
             showToast(error?.message || "Failed to sync with database", "error");
         } finally {
             setLoading(false);
@@ -283,9 +309,11 @@ export default function UsersPage() {
     };
 
     const filteredUsers = users.filter(user => {
-        const matchesSearch = (user.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                             user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                             user.phone?.includes(searchQuery));
+        const q = searchQuery.toLowerCase().trim();
+        const matchesSearch = !q || 
+            (user.name?.toLowerCase().includes(q) ?? false) ||
+            user.email.toLowerCase().includes(q) ||
+            (user.phone?.includes(q) ?? false);
         const matchesRole = currentTab === "ALL" || user.role === currentTab;
         const matchesFilterRole = filterRole === "ALL" || user.role === filterRole;
         return matchesSearch && matchesRole && matchesFilterRole;
@@ -421,6 +449,27 @@ export default function UsersPage() {
                 </div>
             </div>
 
+            {/* Error Banner */}
+            {fetchError && (
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        <Ban className="text-red-500 shrink-0" size={20} />
+                        <div>
+                            <p className="text-sm font-bold text-red-900">Database Connection Notice</p>
+                            <p className="text-xs text-red-600 font-medium">{fetchError}</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => fetchUsers(true)}
+                        disabled={loading || isSyncing}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                    >
+                        <RefreshCw size={14} className={loading || isSyncing ? "animate-spin" : ""} />
+                        Retry Sync
+                    </button>
+                </div>
+            )}
+
             {/* Table */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
@@ -437,8 +486,25 @@ export default function UsersPage() {
                         <tbody className="divide-y divide-gray-100 font-medium">
                             {filteredUsers.length === 0 ? (
                                 <tr>
-                                    <td colSpan={5} className="py-20 text-center text-gray-400 font-bold">
-                                        No users found matching your search.
+                                    <td colSpan={5} className="py-20 text-center">
+                                        {fetchError ? (
+                                            <div className="flex flex-col items-center justify-center gap-3">
+                                                <Ban className="text-red-400" size={32} />
+                                                <p className="text-gray-700 font-bold">Unable to load users from database</p>
+                                                <p className="text-xs text-gray-400 max-w-md">{fetchError}</p>
+                                                <button
+                                                    onClick={() => fetchUsers(true)}
+                                                    className="mt-2 px-5 py-2.5 bg-[#042a22] text-white rounded-xl text-xs font-bold hover:bg-emerald-900 transition-all flex items-center gap-2"
+                                                >
+                                                    <RefreshCw size={14} />
+                                                    Retry Sync
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <span className="text-gray-400 font-bold">
+                                                {searchQuery ? "No users found matching your search." : "No registered users in the database."}
+                                            </span>
+                                        )}
                                     </td>
                                 </tr>
                             ) : filteredUsers.map((user) => {

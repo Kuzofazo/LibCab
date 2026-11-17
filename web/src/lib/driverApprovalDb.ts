@@ -11,38 +11,11 @@ export async function ensureDriverApprovalSchema() {
     if (schemaChecked) return;
     try {
         await prisma.$executeRawUnsafe(`
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'DriverProfile' AND column_name = 'approvalStatus'
-                ) THEN
-                    ALTER TABLE "DriverProfile" ADD COLUMN "approvalStatus" VARCHAR(50) DEFAULT 'PENDING';
-                    -- Existing drivers prior to this feature remain approved to prevent disruption
-                    UPDATE "DriverProfile" SET "approvalStatus" = 'APPROVED' WHERE "approvalStatus" IS NULL;
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'DriverProfile' AND column_name = 'rejectionReason'
-                ) THEN
-                    ALTER TABLE "DriverProfile" ADD COLUMN "rejectionReason" TEXT;
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'DriverProfile' AND column_name = 'reviewedAt'
-                ) THEN
-                    ALTER TABLE "DriverProfile" ADD COLUMN "reviewedAt" TIMESTAMP;
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'DriverProfile' AND column_name = 'reviewedBy'
-                ) THEN
-                    ALTER TABLE "DriverProfile" ADD COLUMN "reviewedBy" VARCHAR(255);
-                END IF;
-            END $$;
+            ALTER TABLE "DriverProfile" 
+            ADD COLUMN IF NOT EXISTS "approvalStatus" VARCHAR(50) DEFAULT 'APPROVED',
+            ADD COLUMN IF NOT EXISTS "rejectionReason" TEXT,
+            ADD COLUMN IF NOT EXISTS "reviewedAt" TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS "reviewedBy" VARCHAR(255);
         `);
         schemaChecked = true;
     } catch (error) {

@@ -41,6 +41,7 @@ export async function GET(req: Request) {
                         vehicleColor: true,
                         licensePlate: true,
                         driverLicense: true,
+                        approvalStatus: true,
                         isOnline: true,
                         rating: true
                     }
@@ -125,6 +126,11 @@ export async function POST(req: Request) {
                         vehicleColor: vehicleColor ? String(vehicleColor).trim() : null,
                         licensePlate: licensePlate ? String(licensePlate).trim() : null,
                         driverLicense: driverLicense ? String(driverLicense).trim() : null,
+                        approvalStatus: "APPROVED",
+                        reviewedAt: new Date(),
+                        reviewedBy: payload.email || "System Administrator",
+                        isOnline: false,
+                        rating: 5.0,
                     }
                 } : undefined
             },
@@ -147,6 +153,7 @@ export async function POST(req: Request) {
                         vehicleColor: true,
                         licensePlate: true,
                         driverLicense: true,
+                        approvalStatus: true,
                         isOnline: true,
                         rating: true
                     }
@@ -154,7 +161,24 @@ export async function POST(req: Request) {
             }
         });
 
-        // 3. Audit Log
+        // 3. Auto-provision Driver Wallet if Driver
+        if (newUser.role === "DRIVER" && newUser.driverProfile?.id) {
+            try {
+                const { ensureDriverWallet } = await import("@/lib/walletService");
+                await ensureDriverWallet(newUser.driverProfile.id, {
+                    userId: newUser.id,
+                    name: newUser.name || undefined,
+                    email: newUser.email,
+                    phone: newUser.phone || undefined,
+                    vehicleModel: newUser.driverProfile.vehicleModel || undefined,
+                    licensePlate: newUser.driverProfile.licensePlate || undefined,
+                });
+            } catch (walletErr) {
+                console.warn("Notice: Driver wallet provision note:", walletErr);
+            }
+        }
+
+        // 4. Audit Log
         await prisma.dispatcherLog.create({
             data: {
                 dispatcherId: payload.userId,

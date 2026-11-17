@@ -103,7 +103,7 @@ export async function POST(req: Request) {
 
         // Ride Category check
         if (coupon.applicableCategories && coupon.applicableCategories !== "ALL" && rideCategory) {
-            const allowed = coupon.applicableCategories.toLowerCase().split(",").map(c => c.trim());
+            const allowed = coupon.applicableCategories.toLowerCase().split(",").map((c: string) => c.trim());
             if (!allowed.includes(rideCategory.toLowerCase())) {
                 return NextResponse.json({
                     valid: false,
