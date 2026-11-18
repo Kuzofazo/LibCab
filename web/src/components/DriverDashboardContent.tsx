@@ -105,14 +105,58 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     const [completingTrip, setCompletingTrip] = useState(false);
     const [incomingOffer, setIncomingOffer] = useState<{
         rideId: string;
+        bookingReference?: string;
+        customerName: string;
+        customerPhone?: string;
         originAddress: string;
         destAddress: string;
+        originLat?: number;
+        originLng?: number;
+        destLat?: number;
+        destLng?: number;
         fare: number;
         distanceKm: number;
         etaMinutes: number;
         vehicleType?: string;
+        rideCategory?: string;
+        paymentMethod?: string;
+        acPreference?: string;
+        atmospherePreference?: string;
+        luggageAssistance?: boolean;
+        notes?: string;
         countdown: number;
     } | null>(null);
+
+    // Helper: Normalize incoming offer payload with full passenger & trip details
+    const buildIncomingOffer = useCallback((raw: any, fallbackCountdown = 45) => {
+        const ride = raw?.ride || raw || {};
+        const cName = ride.rider?.name || ride.guestName || raw?.guestName || raw?.clientName || "Passenger";
+        const cPhone = ride.customerPaymentPhone || ride.guestPhone || ride.rider?.phone || "";
+        return {
+            rideId: ride.id || raw?.rideId || "",
+            bookingReference: ride.bookingReference || (ride.id ? ride.id.slice(-6).toUpperCase() : ""),
+            customerName: cName,
+            customerPhone: cPhone,
+            originAddress: ride.originAddress || "Pickup Location",
+            destAddress: ride.destAddress || "Destination",
+            originLat: ride.originLat,
+            originLng: ride.originLng,
+            destLat: ride.destLat,
+            destLng: ride.destLng,
+            fare: ride.fare !== undefined && ride.fare !== null ? Number(ride.fare) : 5.0,
+            distanceKm: Number(raw?.distanceKm || ride.distanceKm || 1.8),
+            etaMinutes: Number(raw?.etaMinutes || ride.etaMinutes || 4),
+            vehicleType: ride.vehicleType || "Car",
+            rideCategory: ride.rideCategory || "Regular",
+            paymentMethod: ride.paymentMethod || "MOMO",
+            acPreference: ride.acPreference,
+            atmospherePreference: ride.atmospherePreference,
+            luggageAssistance: Boolean(ride.luggageAssistance),
+            notes: ride.notes,
+            countdown: raw?.countdownSeconds || fallbackCountdown,
+        };
+    }, []);
+
     const [pushPermission, setPushPermission] = useState<string>("default");
     const [testingPush, setTestingPush] = useState(false);
     const audioContextRef = useRef<AudioContext | null>(null);
@@ -539,29 +583,22 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         targetDriverId === driverProfileId ||
                         targetDriverId === currentUser?.driverProfileId;
 
-                    if (isTargetDriver && !activeRideRef.current) {
+                    if (isTargetDriver && (!activeRideRef.current || activeRideRef.current.status === "ASSIGNED" || activeRideRef.current.status === "PENDING")) {
                         playChimeSound();
+
+                        const offer = buildIncomingOffer(payload.data || payload, 45);
 
                         if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
                             new Notification("🚖 New AfriCab Ride Request!", {
-                                body: `Pickup: ${offerData.originAddress} • Fare: $${Number(offerData.fare || 5).toFixed(2)}`,
+                                body: `Passenger: ${offer.customerName} • Pickup: ${offer.originAddress} • Fare: $${Number(offer.fare || 5).toFixed(2)}`,
                                 icon: "/favicon.ico",
                             });
                         }
 
-                        setIncomingOffer({
-                            rideId: offerData.id || payload.rideId,
-                            originAddress: offerData.originAddress,
-                            destAddress: offerData.destAddress,
-                            fare: offerData.fare || 5.0,
-                            distanceKm: offerData.distanceKm || 1.8,
-                            etaMinutes: offerData.etaMinutes || 4,
-                            vehicleType: offerData.vehicleType || "Car",
-                            countdown: 45,
-                        });
+                        setIncomingOffer(offer);
 
                         if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-                        let secondsLeft = 45;
+                        let secondsLeft = offer.countdown;
                         countdownTimerRef.current = setInterval(() => {
                             secondsLeft -= 1;
                             if (secondsLeft <= 0) {
@@ -584,7 +621,43 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         }
                     }
                     if (user?.id) fetchRides(user.id);
-                } else if (payload.type === "RIDE_ACCEPTED" || payload.type === "DRIVER_ASSIGNED") {
+                } else if (payload.type === "DRIVER_ASSIGNED") {
+                    const isForMe = payload.driverId === driverProfileId ||
+                        payload.driverId === user.id ||
+                        payload.driverId === user.driverProfileId ||
+                        payload.data?.driverId === driverProfileId ||
+                        payload.data?.driver?.userId === user.id;
+
+                    if (isForMe && payload.data) {
+                        const assignedRide = payload.data;
+                        setActiveRide(assignedRide);
+                        activeRideRef.current = assignedRide;
+                        playChimeSound();
+
+                        const offer = buildIncomingOffer(assignedRide, 60);
+                        setIncomingOffer(offer);
+
+                        if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
+                            new Notification("🚖 AfriCab: New Assigned Ride Request!", {
+                                body: `Passenger: ${offer.customerName} • Pickup: ${offer.originAddress} • Fare: $${Number(offer.fare || 5).toFixed(2)}`,
+                                icon: "/favicon.ico",
+                            });
+                        }
+
+                        if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                        let secondsLeft = 60;
+                        countdownTimerRef.current = setInterval(() => {
+                            secondsLeft -= 1;
+                            if (secondsLeft <= 0) {
+                                clearInterval(countdownTimerRef.current!);
+                                setIncomingOffer(null);
+                            } else {
+                                setIncomingOffer((prev) => prev ? { ...prev, countdown: secondsLeft } : null);
+                            }
+                        }, 1000);
+                    }
+                    if (user?.id) fetchRides(user.id);
+                } else if (payload.type === "RIDE_ACCEPTED") {
                     const isForMe = payload.driverId === driverProfileId ||
                         payload.driverId === user.id ||
                         payload.driverId === user.driverProfileId ||
@@ -741,13 +814,29 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     (r.status === "ASSIGNED" || r.status === "PENDING" || r.status === "ACCEPTED" || r.status === "ARRIVED" || r.status === "IN_PROGRESS")
                 );
 
-                // Play chime if a new assigned ride alert arrives
+                const prevActive = activeRideRef.current;
+
+                // Play chime and trigger alert modal if a new assigned ride alert arrives
                 if (myActiveRide && (!prevActive || prevActive.id !== myActiveRide.id) && (myActiveRide.status === "ASSIGNED" || myActiveRide.status === "PENDING")) {
                     playChimeSound();
+                    if (!incomingOfferRef.current) {
+                        const offer = buildIncomingOffer(myActiveRide, 45);
+                        setIncomingOffer(offer);
+                        if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                        let secondsLeft = 45;
+                        countdownTimerRef.current = setInterval(() => {
+                            secondsLeft -= 1;
+                            if (secondsLeft <= 0) {
+                                clearInterval(countdownTimerRef.current!);
+                                setIncomingOffer(null);
+                            } else {
+                                setIncomingOffer((prev) => prev ? { ...prev, countdown: secondsLeft } : null);
+                            }
+                        }, 1000);
+                    }
                 }
 
                 // Detect cancellation: if we had an active ride that was cancelled on the backend
-                const prevActive = activeRideRef.current;
                 if (prevActive && !myActiveRide) {
                     const found = data.find(r => r.id === prevActive.id);
                     if (found && found.status === "CANCELLED") {
@@ -823,6 +912,11 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
                 if (data.ride) {
                     setActiveRide(data.ride);
+                    activeRideRef.current = data.ride;
+                    // Auto-open navigation to customer pickup location upon acceptance
+                    if (data.ride.originLat && data.ride.originLng) {
+                        openGoogleMapsNavigation(data.ride.originLat, data.ride.originLng, data.ride.originAddress);
+                    }
                 }
                 setShowDirectionsPrompt(true);
                 fetchRides(user.id);
@@ -947,8 +1041,15 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             if (res.ok) {
                 const updated = await res.json();
                 setActiveRide(updated);
+                activeRideRef.current = updated;
                 if (status === "IN_PROGRESS") {
                     fetchWallet();
+                    // Requirement 4: Once ride is started, automatically display customer destination and activate navigation!
+                    openGoogleMapsNavigation(
+                        updated.destLat || activeRide.destLat,
+                        updated.destLng || activeRide.destLng,
+                        updated.destAddress || activeRide.destAddress
+                    );
                 }
                 // Immediately broadcast coordinates so customer sees driver at pickup or on journey
                 if (myCoords) {
@@ -1694,68 +1795,131 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
 
             <div className="container mx-auto px-4 sm:px-6 py-8">
                 <div className="max-w-6xl mx-auto space-y-8">
-                    {/* Real-Time Incoming Ride Offer Modal */}
+                    {/* Real-Time Incoming Ride Offer Modal (Step 1: Ride Alert) */}
                     {incomingOffer && (
                         <div className="fixed inset-0 z-[150] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
                             <div className="bg-white rounded-3xl max-w-lg w-full border-2 border-emerald-500 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                                <div className="bg-slate-900 text-white p-6 flex items-center justify-between">
+                                <div className="bg-slate-900 text-white p-5 sm:p-6 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center border border-red-500/30 animate-pulse">
+                                        <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 animate-pulse">
                                             <Bell size={20} />
                                         </div>
                                         <div>
-                                            <span className="text-[10px] font-black tracking-wider uppercase text-emerald-400 block">Instant Match Available</span>
-                                            <h3 className="text-lg font-black text-white">New Ride Request</h3>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-black tracking-wider uppercase text-emerald-400 block">Instant Ride Alert</span>
+                                                {incomingOffer.bookingReference && (
+                                                    <span className="text-[10px] font-mono font-bold bg-slate-800 text-slate-300 px-2 py-0.5 rounded">
+                                                        #{incomingOffer.bookingReference}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <h3 className="text-lg font-black text-white">New Assigned Ride Request</h3>
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <span className="text-2xl font-black text-amber-400">{incomingOffer.countdown}s</span>
-                                        <span className="text-[10px] text-slate-400 block uppercase font-bold">Expires</span>
+                                        <span className="text-2xl font-black text-amber-400 font-mono">{incomingOffer.countdown}s</span>
+                                        <span className="text-[10px] text-slate-400 block uppercase font-bold">Auto-Expires</span>
                                     </div>
                                 </div>
 
                                 <div className="h-1.5 w-full bg-slate-100">
                                     <div
                                         className="h-full bg-emerald-500 transition-all duration-1000 ease-linear"
-                                        style={{ width: `${(incomingOffer.countdown / 45) * 100}%` }}
+                                        style={{ width: `${Math.min(100, Math.max(0, (incomingOffer.countdown / 45) * 100))}%` }}
                                     />
                                 </div>
 
-                                <div className="p-6 space-y-6">
-                                    <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+                                    {/* 1. Customer Details Card */}
+                                    <div className="flex items-center justify-between gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="w-12 h-12 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-lg shrink-0">
+                                                {incomingOffer.customerName?.charAt(0) || "P"}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-1.5">
+                                                    <h4 className="font-black text-slate-900 text-sm truncate">{incomingOffer.customerName}</h4>
+                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 shrink-0">Verified</span>
+                                                </div>
+                                                <p className="text-xs font-mono text-slate-500 truncate">
+                                                    {incomingOffer.customerPhone || "Phone on file"}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                            <span className="px-2.5 py-1 bg-slate-200/80 rounded-lg text-[10px] font-black uppercase text-slate-700 block">
+                                                {incomingOffer.vehicleType || "Car"} • {incomingOffer.rideCategory || "Regular"}
+                                            </span>
+                                            <span className="text-[10px] font-bold text-slate-500 mt-1 block">
+                                                {incomingOffer.paymentMethod || "MOMO"}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* 2. Fare & Proximity */}
+                                    <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
                                         <div>
                                             <span className="text-[10px] font-black text-slate-400 uppercase block">Estimated Fare</span>
                                             <span className="text-xl font-black text-slate-900">{formatDual(incomingOffer.fare)}</span>
                                         </div>
                                         <div className="text-right">
-                                            <span className="text-[10px] font-black text-slate-400 uppercase block">Distance to Pickup</span>
+                                            <span className="text-[10px] font-black text-slate-400 uppercase block">Pickup Proximity</span>
                                             <span className="text-xl font-black text-emerald-600">{incomingOffer.distanceKm.toFixed(1)} km</span>
                                             <span className="text-[10px] font-bold text-slate-500 block">~{incomingOffer.etaMinutes} mins away</span>
                                         </div>
                                     </div>
 
+                                    {/* 3. Pickup & Destination Locations */}
                                     <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
                                         <div className="flex items-start gap-3">
                                             <MapPin size={16} className="text-emerald-600 mt-0.5 shrink-0" />
-                                            <div>
-                                                <span className="text-[9px] font-black text-slate-400 uppercase block">Pickup Address</span>
-                                                <p className="text-xs font-bold text-slate-900">{incomingOffer.originAddress}</p>
+                                            <div className="min-w-0">
+                                                <span className="text-[9px] font-black text-slate-400 uppercase block">Pickup Location</span>
+                                                <p className="text-xs font-bold text-slate-900 truncate">{incomingOffer.originAddress}</p>
                                             </div>
                                         </div>
                                         <div className="border-t border-slate-200 pt-2 flex items-start gap-3">
                                             <Navigation size={16} className="text-red-600 mt-0.5 shrink-0" />
-                                            <div>
-                                                <span className="text-[9px] font-black text-slate-400 uppercase block">Destination Address</span>
-                                                <p className="text-xs font-bold text-slate-900">{incomingOffer.destAddress}</p>
+                                            <div className="min-w-0">
+                                                <span className="text-[9px] font-black text-slate-400 uppercase block">Customer Destination</span>
+                                                <p className="text-xs font-bold text-slate-900 truncate">{incomingOffer.destAddress}</p>
                                             </div>
                                         </div>
                                     </div>
 
+                                    {/* 4. Customer Comfort Preferences / Notes */}
+                                    {(incomingOffer.acPreference || incomingOffer.atmospherePreference || incomingOffer.luggageAssistance || incomingOffer.notes) && (
+                                        <div className="flex flex-wrap gap-1.5 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                                            <span className="text-[9px] font-black uppercase text-slate-400 w-full mb-1">Customer Requests:</span>
+                                            {incomingOffer.acPreference && incomingOffer.acPreference !== "NO_PREFERENCE" && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                                    {incomingOffer.acPreference === "AC_ON" ? "❄️ AC On" : "🌬️ Windows Down"}
+                                                </span>
+                                            )}
+                                            {incomingOffer.atmospherePreference === "QUIET" && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                                    🤫 Quiet Ride
+                                                </span>
+                                            )}
+                                            {incomingOffer.luggageAssistance && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                                    🧳 Luggage Help
+                                                </span>
+                                            )}
+                                            {incomingOffer.notes && (
+                                                <p className="text-xs text-slate-600 italic w-full mt-1">
+                                                    &ldquo;{incomingOffer.notes}&rdquo;
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* 5. Accept & Decline Action Buttons */}
                                     <div className="flex items-center gap-3 pt-2">
                                         <button
                                             type="button"
                                             onClick={() => handleDeclineRide(incomingOffer.rideId)}
-                                            className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black text-xs uppercase tracking-wider transition-colors"
+                                            className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black text-xs uppercase tracking-wider transition-colors cursor-pointer"
                                         >
                                             Decline
                                         </button>
@@ -1763,7 +1927,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                             type="button"
                                             disabled={acceptingRideId === incomingOffer.rideId}
                                             onClick={() => handleAcceptRide(incomingOffer.rideId)}
-                                            className="flex-[2] py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-colors shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 disabled:opacity-75"
+                                            className="flex-[2] py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 disabled:opacity-75 cursor-pointer active:scale-95"
                                         >
                                             {acceptingRideId === incomingOffer.rideId ? (
                                                 <>
@@ -2265,8 +2429,10 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                             </div>
 
                             {/* Active Mission Card OR Available Requests */}
+                            {/* Active Mission Card OR Available Requests */}
                             {activeRide ? (
                                 <div className="bg-white border-2 border-slate-900 p-6 sm:p-8 rounded-3xl shadow-md space-y-6 relative overflow-hidden">
+                                    {/* Card Top: Status & Booking Reference */}
                                     <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                                         <div className="flex items-center gap-2">
                                             <span className={`w-2.5 h-2.5 rounded-full ${activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
@@ -2284,99 +2450,279 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                         ? "En Route to Pickup Location"
                                                         : activeRide.status === "ARRIVED"
                                                             ? "Arrived at Pickup · Waiting for Passenger"
-                                                            : "Active Ride in Progress"}
+                                                            : "Active Ride in Progress · Navigating to Destination"}
                                             </h3>
                                         </div>
-                                        <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
-                                            #{activeRide.id.slice(-6).toUpperCase()}
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            {activeRide.rideCategory && (
+                                                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-900 text-white">
+                                                    {activeRide.rideCategory}
+                                                </span>
+                                            )}
+                                            <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                                                #{activeRide.bookingReference || activeRide.id.slice(-6).toUpperCase()}
+                                            </span>
+                                        </div>
                                     </div>
 
-                                    {/* Google Maps Turn-by-Turn Navigation Quick Action Banner */}
-                                    <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-md border border-slate-700/50">
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
-                                                <Navigation size={20} className="animate-pulse" />
+                                    {/* 4-Step Driver Ride Management Workflow Progress Tracker */}
+                                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                                        <div className="grid grid-cols-4 gap-2 text-center relative">
+                                            {/* Step 1: Ride Alert */}
+                                            <div className="flex flex-col items-center">
+                                                <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-xs shadow-sm">
+                                                    <CheckCircle2 size={16} />
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase text-slate-900 mt-1.5">1. Ride Alert</span>
+                                                <span className="text-[9px] font-semibold text-emerald-600">Assigned</span>
                                             </div>
-                                            <div className="min-w-0">
-                                                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 block">
-                                                    {activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
-                                                        ? "Google Maps · Navigation to Pickup"
-                                                        : "Google Maps · Navigation to Destination"}
+
+                                            {/* Step 2: Accept Ride */}
+                                            <div className="flex flex-col items-center">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-sm transition-all ${activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                        ? "bg-amber-500 text-white ring-4 ring-amber-100 animate-pulse"
+                                                        : "bg-emerald-600 text-white"
+                                                    }`}>
+                                                    {activeRide.status === "PENDING" || activeRide.status === "ASSIGNED" ? "2" : <CheckCircle2 size={16} />}
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase text-slate-900 mt-1.5">2. Accept Ride</span>
+                                                <span className={`text-[9px] font-semibold ${activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                        ? "text-amber-600 animate-pulse font-bold"
+                                                        : "text-emerald-600"
+                                                    }`}>
+                                                    {activeRide.status === "PENDING" || activeRide.status === "ASSIGNED" ? "Tap Accept" : "Accepted"}
                                                 </span>
-                                                <p className="text-xs font-bold truncate text-white">
-                                                    {activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
-                                                        ? activeRide.originAddress
-                                                        : activeRide.destAddress}
-                                                </p>
+                                            </div>
+
+                                            {/* Step 3: Start Ride */}
+                                            <div className="flex flex-col items-center">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-sm transition-all ${activeRide.status === "IN_PROGRESS"
+                                                        ? "bg-emerald-600 text-white"
+                                                        : activeRide.status === "ARRIVED"
+                                                            ? "bg-emerald-500 text-white ring-4 ring-emerald-100 animate-bounce"
+                                                            : activeRide.status === "ACCEPTED"
+                                                                ? "bg-blue-600 text-white ring-4 ring-blue-100"
+                                                                : "bg-slate-200 text-slate-500"
+                                                    }`}>
+                                                    {activeRide.status === "IN_PROGRESS" ? <CheckCircle2 size={16} /> : <Car size={15} />}
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase text-slate-900 mt-1.5">3. Start Trip</span>
+                                                <span className={`text-[9px] font-semibold ${activeRide.status === "IN_PROGRESS"
+                                                        ? "text-emerald-600"
+                                                        : activeRide.status === "ARRIVED"
+                                                            ? "text-emerald-600 font-bold animate-pulse"
+                                                            : activeRide.status === "ACCEPTED"
+                                                                ? "text-blue-600 font-bold"
+                                                                : "text-slate-400"
+                                                    }`}>
+                                                    {activeRide.status === "IN_PROGRESS"
+                                                        ? "Started"
+                                                        : activeRide.status === "ARRIVED"
+                                                            ? "Tap Start"
+                                                            : activeRide.status === "ACCEPTED"
+                                                                ? "En Route"
+                                                                : "Waiting"}
+                                                </span>
+                                            </div>
+
+                                            {/* Step 4: Directions & Destination Navigation */}
+                                            <div className="flex flex-col items-center">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-sm transition-all ${activeRide.status === "IN_PROGRESS"
+                                                        ? "bg-blue-600 text-white ring-4 ring-blue-100 animate-pulse"
+                                                        : "bg-slate-200 text-slate-500"
+                                                    }`}>
+                                                    <Navigation size={15} />
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase text-slate-900 mt-1.5">4. Navigation</span>
+                                                <span className={`text-[9px] font-semibold ${activeRide.status === "IN_PROGRESS"
+                                                        ? "text-blue-600 font-bold animate-pulse"
+                                                        : "text-slate-400"
+                                                    }`}>
+                                                    {activeRide.status === "IN_PROGRESS" ? "Live to Dest" : "To Dest"}
+                                                </span>
                                             </div>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => openGoogleMapsNavigation(
-                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
-                                                    ? activeRide.originLat
-                                                    : activeRide.destLat,
-                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
-                                                    ? activeRide.originLng
-                                                    : activeRide.destLng,
-                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
-                                                    ? activeRide.originAddress
-                                                    : activeRide.destAddress
-                                            )}
-                                            className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md shrink-0 active:scale-95 transition-all cursor-pointer"
-                                        >
-                                            <Navigation size={14} className="text-slate-950 fill-current" />
-                                            <span>Get Directions</span>
-                                        </button>
                                     </div>
 
-                                    {/* Passenger Info */}
+                                    {/* Workflow Contextual Guidance & Quick Navigation Banner */}
+                                    {(activeRide.status === "PENDING" || activeRide.status === "ASSIGNED") && (
+                                        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center font-black shrink-0 animate-bounce">
+                                                    <Bell size={20} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-black uppercase tracking-wider text-amber-900">Step 1 · New Ride Alert</p>
+                                                    <p className="text-xs text-amber-800 font-medium mt-0.5 truncate">
+                                                        A customer request has been assigned to you. Click <strong>Accept Ride</strong> below to confirm.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                disabled={acceptingRideId === activeRide.id}
+                                                onClick={() => handleAcceptRide(activeRide.id)}
+                                                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center gap-1.5 shrink-0 active:scale-95 cursor-pointer disabled:opacity-50"
+                                            >
+                                                {acceptingRideId === activeRide.id ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                                                Accept Ride
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {activeRide.status === "ACCEPTED" && (
+                                        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black shrink-0">
+                                                    <Navigation size={20} className="animate-pulse" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-black uppercase tracking-wider text-blue-900">Step 2 · Drive to Pickup Location</p>
+                                                    <p className="text-xs text-blue-800 font-medium mt-0.5 truncate">
+                                                        Pickup: <strong>{activeRide.originAddress}</strong>. Tap <strong>Arrived</strong> when you reach the customer.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => openGoogleMapsNavigation(activeRide.originLat, activeRide.originLng, activeRide.originAddress)}
+                                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm flex items-center gap-1.5 shrink-0 active:scale-95 cursor-pointer"
+                                            >
+                                                <Navigation size={14} /> Navigate to Pickup
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {activeRide.status === "ARRIVED" && (
+                                        <div className="bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black shrink-0">
+                                                    <MapPin size={20} className="text-white" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-black uppercase tracking-wider text-emerald-900">Step 3 · Arrived at Pickup · Passenger Boarding</p>
+                                                    <p className="text-xs text-emerald-800 font-medium mt-0.5 truncate">
+                                                        You are at the pickup point! Once passenger is safely aboard, tap <strong>Start Ride</strong> to activate trip &amp; destination directions.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                disabled={statusUpdating}
+                                                onClick={() => handleUpdateStatus("IN_PROGRESS")}
+                                                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 shrink-0 active:scale-95 cursor-pointer disabled:opacity-50 animate-pulse"
+                                            >
+                                                {statusUpdating ? <Loader2 size={16} className="animate-spin" /> : <Car size={16} />}
+                                                Start Ride
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Requirement 4: Once ride is started, automatically display customer destination and activate navigation */}
+                                    {activeRide.status === "IN_PROGRESS" && (
+                                        <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4 shadow-lg border border-blue-500/30">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className="w-11 h-11 rounded-2xl bg-blue-500/30 text-blue-300 flex items-center justify-center shrink-0 border border-blue-400/30">
+                                                    <Navigation size={22} className="animate-pulse" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <span className="text-[10px] font-black uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
+                                                        <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping inline-block" />
+                                                        Step 4 · Active Trip · Navigating to Customer Destination
+                                                    </span>
+                                                    <p className="text-sm font-black truncate text-white mt-0.5">
+                                                        {activeRide.destAddress}
+                                                    </p>
+                                                    <p className="text-[11px] text-blue-200 mt-0.5 font-medium">
+                                                        {activeRide.distanceKm ? `${activeRide.distanceKm.toFixed(1)} km · ` : ""}Directions active on integrated map &amp; Google Maps
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => openGoogleMapsNavigation(activeRide.destLat, activeRide.destLng, activeRide.destAddress)}
+                                                className="px-5 py-3 bg-blue-500 hover:bg-blue-400 text-slate-950 rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-blue-500/30 shrink-0 active:scale-95 transition-all cursor-pointer"
+                                            >
+                                                <Navigation size={15} className="text-slate-950 fill-current" />
+                                                <span>Launch Google Maps Turn-by-Turn</span>
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Passenger Info & Direct Contact */}
                                     <div className="flex items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-12 h-12 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-lg">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="w-12 h-12 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-lg shrink-0">
                                                 {activeRide.rider?.name?.charAt(0) || activeRide.guestName?.charAt(0) || "P"}
                                             </div>
-                                            <div>
-                                                <h4 className="font-black text-slate-900 text-sm">{activeRide.rider?.name || activeRide.guestName || "Passenger"}</h4>
-                                                <p className="text-xs font-mono text-slate-500">{activeRide.customerPaymentPhone || activeRide.rider?.phone || "Phone on file"}</p>
+                                            <div className="min-w-0">
+                                                <h4 className="font-black text-slate-900 text-sm truncate">{activeRide.rider?.name || activeRide.guestName || "Passenger"}</h4>
+                                                <p className="text-xs font-mono text-slate-500 truncate">{activeRide.customerPaymentPhone || activeRide.rider?.phone || activeRide.guestPhone || "Phone on file"}</p>
                                             </div>
                                         </div>
 
-                                        {(activeRide.rider?.phone || activeRide.customerPaymentPhone) && (
+                                        {(activeRide.rider?.phone || activeRide.customerPaymentPhone || activeRide.guestPhone) && (
                                             <a
-                                                href={`tel:${activeRide.customerPaymentPhone || activeRide.rider?.phone}`}
-                                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm"
+                                                href={`tel:${activeRide.customerPaymentPhone || activeRide.rider?.phone || activeRide.guestPhone}`}
+                                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm shrink-0"
                                             >
                                                 <Phone size={14} /> Call Passenger
                                             </a>
                                         )}
                                     </div>
 
-                                    {/* Route */}
+                                    {/* Passenger Comfort Preferences & Notes (if any) */}
+                                    {(activeRide.acPreference || activeRide.atmospherePreference || activeRide.luggageAssistance || activeRide.notes) && (
+                                        <div className="flex flex-wrap gap-1.5 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                                            <span className="text-[9px] font-black uppercase text-slate-400 w-full mb-1">Customer Preferences:</span>
+                                            {activeRide.acPreference && activeRide.acPreference !== "NO_PREFERENCE" && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                                    {activeRide.acPreference === "AC_ON" ? "❄️ AC On" : "🌬️ Windows Down"}
+                                                </span>
+                                            )}
+                                            {activeRide.atmospherePreference === "QUIET" && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                                    🤫 Quiet Ride
+                                                </span>
+                                            )}
+                                            {activeRide.luggageAssistance && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                                    🧳 Luggage Help
+                                                </span>
+                                            )}
+                                            {activeRide.notes && (
+                                                <p className="text-xs text-slate-600 italic w-full mt-1">
+                                                    &ldquo;{activeRide.notes}&rdquo;
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Route Details: Pickup & Dropoff */}
                                     <div className="space-y-3 bg-slate-50 p-5 rounded-2xl border border-slate-200">
                                         <div className="flex items-start gap-3">
                                             <MapPin className="text-emerald-600 mt-0.5 shrink-0" size={16} />
-                                            <div>
+                                            <div className="min-w-0">
                                                 <p className="text-[10px] font-black text-slate-400 uppercase">Pickup Location</p>
-                                                <p className="font-bold text-sm text-slate-900">{activeRide.originAddress}</p>
+                                                <p className="font-bold text-sm text-slate-900 break-words">{activeRide.originAddress}</p>
                                             </div>
                                         </div>
                                         <div className="ml-2 border-l-2 border-dashed border-slate-300 h-3" />
                                         <div className="flex items-start gap-3">
                                             <MapPin className="text-red-600 mt-0.5 shrink-0" size={16} />
-                                            <div>
-                                                <p className="text-[10px] font-black text-slate-400 uppercase">Dropoff Destination</p>
-                                                <p className="font-bold text-sm text-slate-900">{activeRide.destAddress}</p>
+                                            <div className="min-w-0">
+                                                <p className="text-[10px] font-black text-slate-400 uppercase">Customer Destination</p>
+                                                <p className="font-bold text-sm text-slate-900 break-words">{activeRide.destAddress}</p>
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* Fare & Three Stage Actions: Accept / Arrive / Cancel Ride */}
+                                    {/* Fare & Step-by-Step Action Buttons */}
                                     <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
                                         <div>
                                             <span className="text-[10px] font-black text-slate-400 uppercase block">Expected Fare</span>
                                             <span className="text-xl font-black text-slate-900">{formatDual(activeRide.fare || 5.0)}</span>
+                                            <span className="text-[10px] text-slate-500 font-bold block mt-0.5">Payment: {activeRide.paymentMethod || "MOMO / Cash"}</span>
                                         </div>
 
                                         <div className="flex flex-wrap items-center gap-2">
@@ -2390,7 +2736,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 <XCircle size={15} /> Cancel Ride
                                             </button>
 
-                                            {/* Button 1: Accept Ride (when ride alert / assignment reaches driver first) */}
+                                            {/* Stage 1: Accept Ride (when ride alert / assignment reaches driver first) */}
                                             {(activeRide.status === "PENDING" || activeRide.status === "ASSIGNED") && (
                                                 <button
                                                     type="button"
@@ -2403,7 +2749,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 </button>
                                             )}
 
-                                            {/* Button 2: Arrive (when ride is accepted & driver is en route to pickup) */}
+                                            {/* Stage 2: En Route to Pickup (Accepted -> Get Directions & Arrive) */}
                                             {activeRide.status === "ACCEPTED" && (
                                                 <>
                                                     <button
@@ -2411,7 +2757,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                         onClick={() => openGoogleMapsNavigation(activeRide.originLat, activeRide.originLng, activeRide.originAddress)}
                                                         className="px-4 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                                                     >
-                                                        <Navigation size={15} /> Get Directions
+                                                        <Navigation size={15} /> Directions to Pickup
                                                     </button>
                                                     <button
                                                         type="button"
@@ -2420,12 +2766,21 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                         className="px-6 py-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
                                                     >
                                                         {statusUpdating ? <Loader2 size={15} className="animate-spin" /> : <MapPin size={15} className="text-emerald-400" />}
-                                                        Arrive
+                                                        Arrived at Pickup
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={statusUpdating}
+                                                        onClick={() => handleUpdateStatus("IN_PROGRESS")}
+                                                        className="px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                                                        title="Directly start ride if passenger is already aboard"
+                                                    >
+                                                        <Car size={15} /> Start Ride
                                                     </button>
                                                 </>
                                             )}
 
-                                            {/* Arrived: Start Ride */}
+                                            {/* Stage 3: Arrived at Pickup (Start Ride officially activates trip & navigation) */}
                                             {activeRide.status === "ARRIVED" && (
                                                 <>
                                                     <button
@@ -2433,29 +2788,29 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                         onClick={() => openGoogleMapsNavigation(activeRide.destLat, activeRide.destLng, activeRide.destAddress)}
                                                         className="px-4 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                                                     >
-                                                        <Navigation size={15} /> Get Directions
+                                                        <Navigation size={15} /> Destination Route
                                                     </button>
                                                     <button
                                                         type="button"
                                                         disabled={statusUpdating}
                                                         onClick={() => handleUpdateStatus("IN_PROGRESS")}
-                                                        className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                                                        className="px-7 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer animate-pulse"
                                                     >
-                                                        {statusUpdating ? <Loader2 size={15} className="animate-spin" /> : <Car size={15} />}
-                                                        Start Ride
+                                                        {statusUpdating ? <Loader2 size={16} className="animate-spin" /> : <Car size={16} />}
+                                                        Start Ride (Activate Trip)
                                                     </button>
                                                 </>
                                             )}
 
-                                            {/* In Progress: Complete Ride */}
+                                            {/* Stage 4: In Progress (Active trip -> Directions & Complete Ride) */}
                                             {activeRide.status === "IN_PROGRESS" && (
                                                 <>
                                                     <button
                                                         type="button"
                                                         onClick={() => openGoogleMapsNavigation(activeRide.destLat, activeRide.destLng, activeRide.destAddress)}
-                                                        className="px-4 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                                                        className="px-5 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
                                                     >
-                                                        <Navigation size={15} /> Get Directions
+                                                        <Navigation size={15} /> Google Maps Navigation
                                                     </button>
                                                     <button
                                                         type="button"

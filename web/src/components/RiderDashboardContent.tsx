@@ -945,6 +945,56 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                 </div>
                             )}
 
+                            {/* ASSIGNED / PENDING: Waiting for Driver to Accept */}
+                            {(activeRide.status === "ASSIGNED" || activeRide.status === "PENDING") && (
+                                <div className="flex flex-col items-center justify-center text-center space-y-4 py-6">
+                                    <div className="relative">
+                                        <div className="w-20 h-20 rounded-full bg-emerald-50 border-4 border-emerald-400 flex items-center justify-center">
+                                            <Car size={32} className="text-emerald-600 animate-pulse" />
+                                        </div>
+                                        <span className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center">
+                                            <span className="w-2 h-2 rounded-full bg-white animate-ping absolute" />
+                                            <span className="w-2 h-2 rounded-full bg-white" />
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-black text-slate-950 tracking-tight">Driver Notified · Awaiting Acceptance</h2>
+                                        <p className="text-sm text-slate-500 font-medium mt-1">
+                                            Connecting with {activeRide.driver?.user?.name || "your assigned driver"}…
+                                        </p>
+                                    </div>
+                                    {activeRide.driver && (
+                                        <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left flex items-center gap-3">
+                                            <div className="w-12 h-12 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-lg shrink-0">
+                                                {activeRide.driver.user?.name?.charAt(0) || "D"}
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <h4 className="font-black text-slate-900 text-sm truncate">{activeRide.driver.user?.name || "Driver Partner"}</h4>
+                                                <p className="text-xs text-slate-500">{activeRide.driver.vehicleColor || ""} {activeRide.driver.vehicleModel || "Vehicle"} • Plate: {activeRide.driver.licensePlate || "Verified"}</p>
+                                            </div>
+                                            <span className="text-xs font-bold px-2 py-1 bg-amber-100 text-amber-800 rounded-lg">Alert Sent</span>
+                                        </div>
+                                    )}
+                                    <div className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-left space-y-2">
+                                        <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                                            <MapPin size={14} className="text-slate-800" />
+                                            <span className="truncate">{activeRide.originAddress}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                                            <Navigation size={14} className="text-slate-800" />
+                                            <span className="truncate">{activeRide.destAddress}</span>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleCancelRide}
+                                        className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer"
+                                    >
+                                        <X size={15} /> Cancel Request
+                                    </button>
+                                </div>
+                            )}
+
                             {/* ACCEPTED / EN_ROUTE: Driver en route to pickup */}
                             {(activeRide.status === "ACCEPTED" || activeRide.status === "EN_ROUTE") && (
                                 <>

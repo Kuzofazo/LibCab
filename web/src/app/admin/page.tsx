@@ -57,7 +57,7 @@ export default function AdminDashboard() {
             sse.onmessage = (event) => {
                 try {
                     const payload = JSON.parse(event.data);
-                    if (["RIDE_REQUESTED", "RIDE_CANCELLED", "RIDE_ACCEPTED", "RIDE_COMPLETED"].includes(payload.type)) {
+                    if (["RIDE_REQUESTED", "RIDE_CANCELLED", "RIDE_ACCEPTED", "DRIVER_ASSIGNED", "DRIVER_ARRIVED", "RIDE_STARTED", "RIDE_COMPLETED", "RIDE_UPDATED"].includes(payload.type)) {
                         fetchDashboardData();
                     }
                 } catch {}
