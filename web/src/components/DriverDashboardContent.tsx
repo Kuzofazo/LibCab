@@ -74,7 +74,32 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     );
     const [isOnline, setIsOnline] = useState(user?.approvalStatus === "APPROVED" || !user?.approvalStatus);
     const [earningsPeriod, setEarningsPeriod] = useState<"TODAY" | "WEEKLY">("TODAY");
-    const [myCoords, setMyCoords] = useState<{ lat: number; lng: number } | null>(null);
+    const [myCoords, setMyCoords] = useState<{ lat: number; lng: number }>(() => {
+        const dLat = user?.driverProfile?.currentLat || user?.currentLat;
+        const dLng = user?.driverProfile?.currentLng || user?.currentLng;
+        if (dLat && dLng) return { lat: Number(dLat), lng: Number(dLng) };
+        return { lat: 6.3156, lng: -10.8074 };
+    });
+    const [showDirectionsPrompt, setShowDirectionsPrompt] = useState(false);
+
+    // ─── Google Maps Navigation Universal Redirect Helper ──────────────────
+    const openGoogleMapsNavigation = useCallback((targetLat?: number, targetLng?: number, address?: string) => {
+        let url = "";
+        if (targetLat && targetLng) {
+            url = `https://www.google.com/maps/dir/?api=1&destination=${targetLat},${targetLng}&travelmode=driving&dir_action=navigate`;
+        } else if (address) {
+            url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving&dir_action=navigate`;
+        } else if (myCoords) {
+            url = `https://www.google.com/maps/@${myCoords.lat},${myCoords.lng},16z`;
+        } else {
+            url = `https://www.google.com/maps/@6.3156,-10.8074,16z`;
+        }
+
+        if (typeof window !== "undefined") {
+            window.open(url, "_blank", "noopener,noreferrer");
+        }
+    }, [myCoords]);
+
     const [gpsBroadcasting, setGpsBroadcasting] = useState(false);
     const gpsIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const [completingTrip, setCompletingTrip] = useState(false);
@@ -703,7 +728,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             const data = await res.json();
 
             if (Array.isArray(data)) {
-                // 1. Find my active ride (Accepted / Arrived / In Progress)
+                // 1. Find my active ride (Assigned / Pending / Accepted / Arrived / In Progress)
                 const myActiveRide = data.find(r =>
                     (
                         r.driver?.userId === userId || 
@@ -713,8 +738,13 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         r.driver?.id === driverProfileId ||
                         r.driver?.userId === user?.id
                     ) &&
-                    (r.status === "ACCEPTED" || r.status === "ARRIVED" || r.status === "IN_PROGRESS")
+                    (r.status === "ASSIGNED" || r.status === "PENDING" || r.status === "ACCEPTED" || r.status === "ARRIVED" || r.status === "IN_PROGRESS")
                 );
+
+                // Play chime if a new assigned ride alert arrives
+                if (myActiveRide && (!prevActive || prevActive.id !== myActiveRide.id) && (myActiveRide.status === "ASSIGNED" || myActiveRide.status === "PENDING")) {
+                    playChimeSound();
+                }
 
                 // Detect cancellation: if we had an active ride that was cancelled on the backend
                 const prevActive = activeRideRef.current;
@@ -794,6 +824,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 if (data.ride) {
                     setActiveRide(data.ride);
                 }
+                setShowDirectionsPrompt(true);
                 fetchRides(user.id);
                 // Immediately broadcast current coordinates so customer's tracking map updates instantly
                 if (myCoords) {
@@ -1497,76 +1528,175 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 </div>
             )}
 
-            {/* Live Position Map */}
-
-            {myCoords && (
-                <div className="border-b border-slate-100 bg-slate-50">
-                    <div className="container mx-auto px-4 sm:px-6 py-4">
-                        <div className="max-w-6xl mx-auto">
-                            <div className="flex items-center justify-between mb-3">
-                                <div className="flex items-center gap-2">
-                                    <div className={`w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'}`} />
-                                    <span className="text-xs font-black text-slate-800 uppercase tracking-wider">
-                                        {isOnline ? "Live Driver GPS Radar" : "Driver Map (Offline Standby)"}
+            {/* Live Position Map — Always rendered with live telemetry */}
+            <div className="border-b border-slate-100 bg-slate-50">
+                <div className="container mx-auto px-4 sm:px-6 py-4">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                                <div className={`w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'}`} />
+                                <span className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                                    {isOnline ? "Live Driver GPS Radar" : "Driver Map (Standby)"}
+                                </span>
+                                {gpsBroadcasting && (
+                                    <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                        <Wifi size={9} /> Broadcasting GPS
                                     </span>
-                                    {gpsBroadcasting && (
-                                        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                                            <Wifi size={9} /> Broadcasting GPS
-                                        </span>
-                                    )}
-                                </div>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-3">
                                 <span className="text-[10px] font-mono text-slate-500">
                                     {myCoords.lat.toFixed(5)}°N, {Math.abs(myCoords.lng).toFixed(5)}°W
                                 </span>
+                                <button
+                                    type="button"
+                                    onClick={() => openGoogleMapsNavigation(
+                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
+                                            ? activeRide?.originLat
+                                            : activeRide?.destLat,
+                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
+                                            ? activeRide?.originLng
+                                            : activeRide?.destLng,
+                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
+                                            ? activeRide?.originAddress
+                                            : activeRide?.destAddress
+                                    )}
+                                    className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-black text-[11px] uppercase tracking-wider flex items-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
+                                    title="Open Google Maps for turn-by-turn navigation"
+                                >
+                                    <Navigation size={12} className="text-emerald-400" />
+                                    <span>Get Directions</span>
+                                </button>
                             </div>
-                            <div className="rounded-3xl overflow-hidden border border-slate-200 shadow-md h-[340px] sm:h-[380px] w-full relative">
-                                <MapComponent
-                                    center={[myCoords.lat, myCoords.lng]}
-                                    zoom={14}
-                                    className="h-full w-full"
-                                    markers={[
-                                        {
-                                            id: "driver-self",
-                                            lat: myCoords.lat,
-                                            lng: myCoords.lng,
-                                            title: driverFullName || "You",
-                                            subtitle: isOnline ? "Active on duty" : "Offline",
-                                            type: "ASSIGNED_DRIVER" as const,
-                                            vehicleType: "Car",
-                                        },
-                                        ...(activeRide?.originLat && activeRide?.originLng ? [{
-                                            id: "customer-pickup",
-                                            lat: activeRide.originLat,
-                                            lng: activeRide.originLng,
-                                            title: activeRide.customer?.name || "Customer Pickup",
-                                            subtitle: activeRide.originAddress || "Pickup Location",
-                                            type: "PICKUP" as const,
-                                        }] : []),
-                                        ...availableRides.filter(r => r.originLat && r.originLng).map(r => ({
-                                            id: `avail-${r.id}`,
-                                            lat: r.originLat!,
-                                            lng: r.originLng!,
-                                            title: `Pickup: ${r.originAddress}`,
-                                            subtitle: `Fare: $${r.fare?.toFixed(2) || "0.00"}`,
-                                            type: "PICKUP" as const,
-                                        }))
-                                    ]}
-                                    routes={
-                                        activeRide?.originLat && activeRide?.originLng
-                                            ? [{
-                                                id: "to-pickup",
-                                                origin: [myCoords.lat, myCoords.lng] as [number, number],
-                                                destination: [activeRide.originLat, activeRide.originLng] as [number, number],
-                                                color: "#0f172a",
-                                            }]
-                                            : []
-                                    }
-                                />
+                        </div>
+
+                        <div className="rounded-3xl overflow-hidden border border-slate-200 shadow-md h-[340px] sm:h-[400px] w-full relative">
+                            {/* Google Maps Turn-by-Turn Top Banner Overlay (styled like user's navigation screenshot) */}
+                            <div className="absolute top-3 inset-x-3 z-20 flex items-center justify-between gap-2 bg-slate-900/90 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl border border-white/10 shadow-lg">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                    <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                                        <Navigation size={16} />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <span className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block">
+                                            {activeRide
+                                                ? (activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                    ? "Navigation to Pickup"
+                                                    : "Navigation to Destination")
+                                                : "Live Road Radar"}
+                                        </span>
+                                        <p className="text-xs font-bold truncate">
+                                            {activeRide
+                                                ? (activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                    ? `toward ${activeRide.originAddress}`
+                                                    : `toward ${activeRide.destAddress}`)
+                                                : "Monrovia Road Network"}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => openGoogleMapsNavigation(
+                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
+                                            ? activeRide?.originLat
+                                            : activeRide?.destLat,
+                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
+                                            ? activeRide?.originLng
+                                            : activeRide?.destLng,
+                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
+                                            ? activeRide?.originAddress
+                                            : activeRide?.destAddress
+                                    )}
+                                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow shrink-0 transition-transform active:scale-95 cursor-pointer"
+                                >
+                                    <span>Get Directions</span>
+                                </button>
+                            </div>
+
+                            <MapComponent
+                                center={[myCoords.lat, myCoords.lng]}
+                                zoom={14}
+                                className="h-full w-full"
+                                markers={[
+                                    {
+                                        id: "driver-self",
+                                        lat: myCoords.lat,
+                                        lng: myCoords.lng,
+                                        title: driverFullName || "You",
+                                        subtitle: isOnline ? "Active on duty" : "Offline",
+                                        type: "ASSIGNED_DRIVER" as const,
+                                        vehicleType: "Car",
+                                    },
+                                    ...(activeRide?.originLat && activeRide?.originLng ? [{
+                                        id: "customer-pickup",
+                                        lat: activeRide.originLat,
+                                        lng: activeRide.originLng,
+                                        title: activeRide.customer?.name || "Customer Pickup",
+                                        subtitle: activeRide.originAddress || "Pickup Location",
+                                        type: "PICKUP" as const,
+                                    }] : []),
+                                    ...(activeRide?.destLat && activeRide?.destLng ? [{
+                                        id: "customer-dest",
+                                        lat: activeRide.destLat,
+                                        lng: activeRide.destLng,
+                                        title: "Destination Dropoff",
+                                        subtitle: activeRide.destAddress || "Dropoff Destination",
+                                        type: "DESTINATION" as const,
+                                    }] : []),
+                                    ...availableRides.filter(r => r.originLat && r.originLng).map(r => ({
+                                        id: `avail-${r.id}`,
+                                        lat: r.originLat!,
+                                        lng: r.originLng!,
+                                        title: `Pickup: ${r.originAddress}`,
+                                        subtitle: `Fare: $${r.fare?.toFixed(2) || "0.00"}`,
+                                        type: "PICKUP" as const,
+                                    }))
+                                ]}
+                                routes={
+                                    activeRide?.status === "IN_PROGRESS" && activeRide?.destLat && activeRide?.destLng
+                                        ? [{
+                                            id: "to-dest",
+                                            origin: [myCoords.lat, myCoords.lng] as [number, number],
+                                            destination: [activeRide.destLat, activeRide.destLng] as [number, number],
+                                            color: "#2563eb",
+                                        }]
+                                        : activeRide?.originLat && activeRide?.originLng
+                                        ? [{
+                                            id: "to-pickup",
+                                            origin: [myCoords.lat, myCoords.lng] as [number, number],
+                                            destination: [activeRide.originLat, activeRide.originLng] as [number, number],
+                                            color: "#0f172a",
+                                        }]
+                                        : []
+                                }
+                            />
+
+                            {/* Floating bottom-right quick navigation button */}
+                            <div className="absolute bottom-3 right-3 z-20">
+                                <button
+                                    type="button"
+                                    onClick={() => openGoogleMapsNavigation(
+                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
+                                            ? activeRide?.originLat
+                                            : activeRide?.destLat,
+                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
+                                            ? activeRide?.originLng
+                                            : activeRide?.destLng,
+                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
+                                            ? activeRide?.originAddress
+                                            : activeRide?.destAddress
+                                    )}
+                                    className="p-3 bg-white text-slate-900 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-2 hover:bg-slate-50 active:scale-95 transition-all cursor-pointer font-black text-xs"
+                                    title="Launch Google Maps Navigation"
+                                >
+                                    <Navigation size={18} className="text-emerald-600" />
+                                    <span>Google Maps</span>
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
-            )}
+            </div>
 
             <div className="container mx-auto px-4 sm:px-6 py-8">
                 <div className="max-w-6xl mx-auto space-y-8">
@@ -1761,6 +1891,65 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                             {isCancellingTrip ? "Cancelling..." : "Confirm Cancellation"}
                                         </button>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Google Maps Turn-by-Turn Navigation Prompt Modal */}
+                    {showDirectionsPrompt && activeRide && (
+                        <div className="fixed inset-0 z-[220] bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white rounded-3xl max-w-md w-full border-2 border-emerald-500 shadow-2xl overflow-hidden p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200">
+                                        <Navigation size={24} className="animate-pulse" />
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 block">Navigation Assistant</span>
+                                        <h3 className="text-lg font-black text-slate-900">Get Directions in Google Maps?</h3>
+                                    </div>
+                                </div>
+
+                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Target Location</p>
+                                    <p className="text-xs font-bold text-slate-800">
+                                        {activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                            ? activeRide.originAddress
+                                            : activeRide.destAddress}
+                                    </p>
+                                    <p className="text-[11px] text-slate-500">
+                                        Launch live voice-guided driving navigation in Google Maps for the best traffic and turn-by-turn guidance.
+                                    </p>
+                                </div>
+
+                                <div className="flex items-center gap-3 pt-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowDirectionsPrompt(false)}
+                                        className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-xs uppercase tracking-wider transition-all cursor-pointer"
+                                    >
+                                        Stay in App
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowDirectionsPrompt(false);
+                                            openGoogleMapsNavigation(
+                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                    ? activeRide.originLat
+                                                    : activeRide.destLat,
+                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                    ? activeRide.originLng
+                                                    : activeRide.destLng,
+                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                    ? activeRide.originAddress
+                                                    : activeRide.destAddress
+                                            );
+                                        }}
+                                        className="flex-[2] py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                                    >
+                                        <Navigation size={15} /> Start Navigation
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -2087,12 +2276,67 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 <div className="bg-white border-2 border-slate-900 p-6 sm:p-8 rounded-3xl shadow-md space-y-6 relative overflow-hidden">
                                     <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                                         <div className="flex items-center gap-2">
-                                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-                                            <h3 className="text-lg font-black text-slate-900">Active Ride in Progress</h3>
+                                            <span className={`w-2.5 h-2.5 rounded-full ${
+                                                activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                    ? "bg-amber-500 animate-ping"
+                                                    : activeRide.status === "ACCEPTED"
+                                                    ? "bg-blue-500 animate-ping"
+                                                    : activeRide.status === "ARRIVED"
+                                                    ? "bg-emerald-500 animate-pulse"
+                                                    : "bg-emerald-500 animate-ping"
+                                            }`} />
+                                            <h3 className="text-lg font-black text-slate-900">
+                                                {activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                    ? "New Ride Alert · Action Required"
+                                                    : activeRide.status === "ACCEPTED"
+                                                    ? "En Route to Pickup Location"
+                                                    : activeRide.status === "ARRIVED"
+                                                    ? "Arrived at Pickup · Waiting for Passenger"
+                                                    : "Active Ride in Progress"}
+                                            </h3>
                                         </div>
                                         <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
                                             #{activeRide.id.slice(-6).toUpperCase()}
                                         </span>
+                                    </div>
+
+                                    {/* Google Maps Turn-by-Turn Navigation Quick Action Banner */}
+                                    <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-md border border-slate-700/50">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                                                <Navigation size={20} className="animate-pulse" />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 block">
+                                                    {activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                        ? "Google Maps · Navigation to Pickup"
+                                                        : "Google Maps · Navigation to Destination"}
+                                                </span>
+                                                <p className="text-xs font-bold truncate text-white">
+                                                    {activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                        ? activeRide.originAddress
+                                                        : activeRide.destAddress}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => openGoogleMapsNavigation(
+                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                    ? activeRide.originLat
+                                                    : activeRide.destLat,
+                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                    ? activeRide.originLng
+                                                    : activeRide.destLng,
+                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                    ? activeRide.originAddress
+                                                    : activeRide.destAddress
+                                            )}
+                                            className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md shrink-0 active:scale-95 transition-all cursor-pointer"
+                                        >
+                                            <Navigation size={14} className="text-slate-950 fill-current" />
+                                            <span>Get Directions</span>
+                                        </button>
                                     </div>
 
                                     {/* Passenger Info */}
@@ -2136,58 +2380,101 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         </div>
                                     </div>
 
-                                    {/* Fare & Stage Actions */}
+                                    {/* Fare & Three Stage Actions: Accept / Arrive / Cancel Ride */}
                                     <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
                                         <div>
                                             <span className="text-[10px] font-black text-slate-400 uppercase block">Expected Fare</span>
                                             <span className="text-xl font-black text-slate-900">{formatDual(activeRide.fare || 5.0)}</span>
                                         </div>
 
-                                        <div className="flex items-center gap-2">
-                                            {/* Cancel Ride Option for Driver */}
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            {/* Cancel Ride Option for Driver: Always accessible across all ride phases */}
                                             <button
                                                 type="button"
                                                 onClick={() => setIsCancelModalOpen(true)}
                                                 className="px-4 py-3.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                                                 title="Cancel or release this trip"
                                             >
-                                                <XCircle size={15} /> Cancel Trip
+                                                <XCircle size={15} /> Cancel Ride
                                             </button>
 
+                                            {/* Button 1: Accept Ride (when ride alert / assignment reaches driver first) */}
+                                            {(activeRide.status === "PENDING" || activeRide.status === "ASSIGNED") && (
+                                                <button
+                                                    type="button"
+                                                    disabled={acceptingRideId === activeRide.id}
+                                                    onClick={() => handleAcceptRide(activeRide.id)}
+                                                    className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                                                >
+                                                    {acceptingRideId === activeRide.id ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+                                                    Accept Ride
+                                                </button>
+                                            )}
+
+                                            {/* Button 2: Arrive (when ride is accepted & driver is en route to pickup) */}
                                             {activeRide.status === "ACCEPTED" && (
-                                                <button
-                                                    type="button"
-                                                    disabled={statusUpdating}
-                                                    onClick={() => handleUpdateStatus("ARRIVED")}
-                                                    className="px-6 py-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
-                                                >
-                                                    {statusUpdating ? <Loader2 size={15} className="animate-spin" /> : <MapPin size={15} className="text-emerald-400" />}
-                                                    Arrived
-                                                </button>
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openGoogleMapsNavigation(activeRide.originLat, activeRide.originLng, activeRide.originAddress)}
+                                                        className="px-4 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                                                    >
+                                                        <Navigation size={15} /> Get Directions
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={statusUpdating}
+                                                        onClick={() => handleUpdateStatus("ARRIVED")}
+                                                        className="px-6 py-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                                                    >
+                                                        {statusUpdating ? <Loader2 size={15} className="animate-spin" /> : <MapPin size={15} className="text-emerald-400" />}
+                                                        Arrive
+                                                    </button>
+                                                </>
                                             )}
 
+                                            {/* Arrived: Start Ride */}
                                             {activeRide.status === "ARRIVED" && (
-                                                <button
-                                                    type="button"
-                                                    disabled={statusUpdating}
-                                                    onClick={() => handleUpdateStatus("IN_PROGRESS")}
-                                                    className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
-                                                >
-                                                    {statusUpdating ? <Loader2 size={15} className="animate-spin" /> : <Car size={15} />}
-                                                    Start Ride
-                                                </button>
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openGoogleMapsNavigation(activeRide.destLat, activeRide.destLng, activeRide.destAddress)}
+                                                        className="px-4 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                                                    >
+                                                        <Navigation size={15} /> Get Directions
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={statusUpdating}
+                                                        onClick={() => handleUpdateStatus("IN_PROGRESS")}
+                                                        className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                                                    >
+                                                        {statusUpdating ? <Loader2 size={15} className="animate-spin" /> : <Car size={15} />}
+                                                        Start Ride
+                                                    </button>
+                                                </>
                                             )}
 
+                                            {/* In Progress: Complete Ride */}
                                             {activeRide.status === "IN_PROGRESS" && (
-                                                <button
-                                                    type="button"
-                                                    disabled={completingTrip}
-                                                    onClick={handleCompleteRide}
-                                                    className="px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-red-600/20 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95"
-                                                >
-                                                    {completingTrip ? <RefreshCw className="animate-spin" size={15} /> : <CheckCircle2 size={15} />}
-                                                    {completingTrip ? "Settling..." : "End Ride & Issue Receipt"}
-                                                </button>
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openGoogleMapsNavigation(activeRide.destLat, activeRide.destLng, activeRide.destAddress)}
+                                                        className="px-4 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                                                    >
+                                                        <Navigation size={15} /> Get Directions
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={completingTrip}
+                                                        onClick={handleCompleteRide}
+                                                        className="px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-red-600/20 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+                                                    >
+                                                        {completingTrip ? <RefreshCw className="animate-spin" size={15} /> : <CheckCircle2 size={15} />}
+                                                        {completingTrip ? "Settling..." : "End Ride & Issue Receipt"}
+                                                    </button>
+                                                </>
                                             )}
                                         </div>
                                     </div>
