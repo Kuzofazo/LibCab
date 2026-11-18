@@ -61,7 +61,13 @@ export async function GET(req: Request) {
             orderBy: { createdAt: "desc" },
             take: 100
         });
-        return NextResponse.json(rides);
+        return NextResponse.json(rides, {
+            headers: {
+                "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            }
+        });
     } catch (error) {
         console.error("GET rides error:", error);
         return NextResponse.json({ error: "Failed to fetch rides" }, { status: 500 });
@@ -476,8 +482,17 @@ export async function PATCH(req: Request) {
             }
         });
 
+        // Invalidate in-memory cache
+        try {
+            const { memoryCache } = await import("@/lib/cache");
+            memoryCache.delete(`ride_details_${id}`);
+        } catch {}
+
         // Broadcast real-time SSE stream update
         let eventType: "RIDE_ACCEPTED" | "DRIVER_ARRIVED" | "RIDE_UPDATED" | "RIDE_CANCELLED" = "RIDE_UPDATED";
+        const cancelledBy = body.cancelledBy || (user.role === "RIDER" ? "RIDER" : user.role === "DRIVER" ? "DRIVER" : "ADMIN");
+        const cancellationReason = body.cancellationReason || body.reason || (user.role === "RIDER" ? "Cancelled by customer" : "Cancelled");
+
         if (status === "ACCEPTED" || (driverId && !updateData.status)) {
             eventType = "RIDE_ACCEPTED";
         } else if (status === "ARRIVED") {
@@ -494,7 +509,14 @@ export async function PATCH(req: Request) {
             type: eventType,
             rideId: updatedRide.id,
             driverId: updatedRide.driverId || undefined,
-            data: updatedRide,
+            data: {
+                ...updatedRide,
+                ...(eventType === "RIDE_CANCELLED" ? {
+                    cancelledBy,
+                    reason: cancellationReason,
+                    message: `Ride #${updatedRide.bookingReference || id.slice(-6).toUpperCase()} was cancelled by ${cancelledBy.toLowerCase()}.`
+                } : {})
+            },
             timestamp: new Date().toISOString(),
         });
 

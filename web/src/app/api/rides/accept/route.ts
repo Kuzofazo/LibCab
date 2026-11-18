@@ -53,6 +53,30 @@ export async function POST(req: Request) {
             }, { status: 402 });
         }
 
+        // Verify ride existence and status prior to accepting
+        const targetRide = await prisma.ride.findUnique({
+            where: { id: rideId },
+            select: { id: true, status: true, bookingReference: true }
+        });
+
+        if (!targetRide) {
+            return NextResponse.json({ error: "Ride not found", code: "NOT_FOUND" }, { status: 404 });
+        }
+
+        if (targetRide.status === "CANCELLED") {
+            return NextResponse.json({
+                error: "This ride request was already cancelled by the customer.",
+                code: "RIDE_CANCELLED"
+            }, { status: 409 });
+        }
+
+        if (targetRide.status !== "REQUESTED") {
+            return NextResponse.json({
+                error: "This ride is no longer available.",
+                code: "ALREADY_TAKEN"
+            }, { status: 409 });
+        }
+
         const result = await DispatchEngine.acceptRideOffer(
             rideId,
             driverProfile.id,

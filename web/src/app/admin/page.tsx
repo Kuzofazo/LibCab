@@ -28,8 +28,8 @@ export default function AdminDashboard() {
         try {
             const headers = getAuthHeaders();
             const [statsRes, ridesRes] = await Promise.allSettled([
-                fetch("/api/admin/stats", { headers }),
-                fetch("/api/admin/recent-rides", { headers }),
+                fetch(`/api/admin/stats?_t=${Date.now()}`, { cache: "no-store", headers }),
+                fetch(`/api/admin/recent-rides?_t=${Date.now()}`, { cache: "no-store", headers }),
             ]);
 
             if (statsRes.status === "fulfilled" && statsRes.value.ok) {
@@ -50,8 +50,25 @@ export default function AdminDashboard() {
 
     useEffect(() => {
         fetchDashboardData();
-        const interval = setInterval(fetchDashboardData, 30000);
-        return () => clearInterval(interval);
+
+        let sse: EventSource | null = null;
+        try {
+            sse = new EventSource("/api/rides/stream");
+            sse.onmessage = (event) => {
+                try {
+                    const payload = JSON.parse(event.data);
+                    if (["RIDE_REQUESTED", "RIDE_CANCELLED", "RIDE_ACCEPTED", "RIDE_COMPLETED"].includes(payload.type)) {
+                        fetchDashboardData();
+                    }
+                } catch {}
+            };
+        } catch {}
+
+        const interval = setInterval(fetchDashboardData, 15000);
+        return () => {
+            clearInterval(interval);
+            if (sse) sse.close();
+        };
     }, [fetchDashboardData]);
 
     return (

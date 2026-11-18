@@ -94,6 +94,22 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
     const incomingOfferRef = useRef<any>(null);
     incomingOfferRef.current = incomingOffer;
+    const activeRideRef = useRef<any>(null);
+    activeRideRef.current = activeRide;
+
+    // ─── Driver-Initiated & Customer Cancellation States ─────────────────────
+    const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+    const [cancelReason, setCancelReason] = useState("Passenger no-show / uncontactable");
+    const [cancelCustomReason, setCancelCustomReason] = useState("");
+    const [cancelReturnToPool, setCancelReturnToPool] = useState(true);
+    const [isCancellingTrip, setIsCancellingTrip] = useState(false);
+    const [cancelledRideAlert, setCancelledRideAlert] = useState<{
+        rideId: string;
+        reference: string;
+        clientName: string;
+        reason: string;
+        cancelledBy: string;
+    } | null>(null);
 
     const [acceptingRideId, setAcceptingRideId] = useState<string | null>(null);
     const [statusUpdating, setStatusUpdating] = useState(false);
@@ -243,6 +259,82 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             console.warn("Chime playback notice:", e);
         }
     }, []);
+
+    // Web Audio Synthesizer: 3-tone descending cancellation alert (550Hz -> 380Hz -> 240Hz)
+    const playCancelSound = useCallback(() => {
+        try {
+            if (typeof window === "undefined") return;
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+            if (!AudioCtx) return;
+            const ctx = audioContextRef.current || new AudioCtx();
+            audioContextRef.current = ctx;
+            if (ctx.state === "suspended") {
+                ctx.resume();
+            }
+
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sawtooth";
+            osc.frequency.setValueAtTime(550, now);
+            osc.frequency.setValueAtTime(380, now + 0.15);
+            osc.frequency.setValueAtTime(240, now + 0.30);
+            gain.gain.setValueAtTime(0.35, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.55);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.55);
+
+            if (typeof navigator !== "undefined" && navigator.vibrate) {
+                navigator.vibrate([200, 100, 200, 100, 300]);
+            }
+        } catch (e) {
+            console.warn("Cancel sound notice:", e);
+        }
+    }, []);
+
+    // Driver-Initiated Cancellation Handler
+    const handleDriverCancelRide = async () => {
+        const currentActive = activeRideRef.current || activeRide;
+        if (!currentActive) return;
+        setIsCancellingTrip(true);
+        try {
+            const finalReason = cancelReason === "Other" && cancelCustomReason.trim()
+                ? cancelCustomReason.trim()
+                : cancelReason;
+
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const res = await fetch(`/api/rides/${currentActive.id}/cancel`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { "Authorization": `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                    reason: finalReason,
+                    returnToPool: cancelReturnToPool,
+                    cancelledBy: "DRIVER"
+                })
+            });
+
+            if (res.ok) {
+                playCancelSound();
+                setActiveRide(null);
+                activeRideRef.current = null;
+                setIsCancelModalOpen(false);
+                setCancelCustomReason("");
+                if (user?.id) fetchRides(user.id);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                alert(err.error || "Failed to cancel ride.");
+            }
+        } catch (err: any) {
+            alert(err.message || "Network error while cancelling ride.");
+        } finally {
+            setIsCancellingTrip(false);
+        }
+    };
 
     // Check notification permission on mount
     useEffect(() => {
@@ -412,7 +504,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 // ── Incoming ride offers (only if online, approved, and wallet balance eligible) ──
                 if (!isOnline || approvalStatus !== "APPROVED" || (walletData && walletData.eligible === false)) return;
 
-                if (payload.type === "RIDE_OFFER_RECEIVED" || payload.type === "RIDE_REQUESTED") {
+                if (payload.type === "RIDE_OFFER_RECEIVED") {
                     const offerData = payload.data?.ride || payload.data;
                     const targetDriverId = payload.driverId;
 
@@ -422,7 +514,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         targetDriverId === driverProfileId ||
                         targetDriverId === currentUser?.driverProfileId;
 
-                    if (isTargetDriver && !activeRide) {
+                    if (isTargetDriver && !activeRideRef.current) {
                         playChimeSound();
 
                         if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
@@ -455,25 +547,137 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                             }
                         }, 1000);
                     }
-                } else if (payload.type === "RIDE_ACCEPTED") {
+                } else if (payload.type === "RIDE_REQUESTED") {
+                    const rideData = payload.data;
+                    if (rideData && !rideData.driverId) {
+                        setAvailableRides((prev) => {
+                            if (prev.some(r => r.id === rideData.id)) return prev;
+                            return [rideData, ...prev];
+                        });
+                        if (!activeRideRef.current) {
+                            playChimeSound();
+                        }
+                    }
+                    if (user?.id) fetchRides(user.id);
+                } else if (payload.type === "RIDE_ACCEPTED" || payload.type === "DRIVER_ASSIGNED") {
                     const isForMe = payload.driverId === driverProfileId ||
                         payload.driverId === user.id ||
+                        payload.driverId === user.driverProfileId ||
                         payload.data?.driverId === driverProfileId ||
                         payload.data?.driver?.userId === user.id;
 
+                    const acceptedRideId = payload.rideId || payload.data?.id;
+
                     if (isForMe && payload.data) {
                         setActiveRide(payload.data);
+                        activeRideRef.current = payload.data;
                         setIncomingOffer(null);
                         if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-                    } else if (incomingOfferRef.current?.rideId === payload.rideId) {
+                        setAvailableRides(prev => prev.filter(r => r.id !== acceptedRideId));
+                        playChimeSound();
+                    } else {
+                        // Accepted by another driver: remove from my available list
+                        setAvailableRides(prev => prev.filter(r => r.id !== acceptedRideId));
+                        if (incomingOfferRef.current?.rideId === acceptedRideId) {
+                            setIncomingOffer(null);
+                            if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                        }
+                    }
+                    if (user?.id) fetchRides(user.id);
+                } else if (payload.type === "RIDE_CANCELLED") {
+                    const cancelledRideId = payload.rideId || payload.data?.id;
+
+                    // 1. Check if this was my active ride or target driver
+                    const currentActive = activeRideRef.current;
+                    const isMyActiveRide = currentActive && currentActive.id === cancelledRideId;
+                    const isMyTargetDriver = payload.driverId && (
+                        payload.driverId === user?.id ||
+                        payload.driverId === user?.driverProfileId ||
+                        payload.driverId === driverProfileId ||
+                        payload.driverId === currentUser?.driverProfileId
+                    );
+
+                    if (isMyActiveRide || isMyTargetDriver) {
+                        playCancelSound();
+                        setActiveRide(null);
+                        activeRideRef.current = null;
+                        if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                        setIncomingOffer(null);
+
+                        const customerName = payload.data?.rider?.name || payload.data?.guestName || currentActive?.rider?.name || currentActive?.guestName || "Customer";
+                        const bookingRef = payload.data?.bookingReference || currentActive?.bookingReference || (cancelledRideId ? cancelledRideId.slice(-6).toUpperCase() : "");
+
+                        setCancelledRideAlert({
+                            rideId: cancelledRideId,
+                            reference: bookingRef,
+                            clientName: customerName,
+                            reason: payload.data?.reason || "Cancelled by customer/dispatch",
+                            cancelledBy: payload.data?.cancelledBy || "RIDER"
+                        });
+
+                        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+                            new Notification("❌ Trip Cancelled", {
+                                body: `Trip #${bookingRef} was cancelled by ${customerName}.`,
+                                icon: "/favicon.ico",
+                            });
+                        }
+                    }
+
+                    // 2. Always remove from available rides queue
+                    setAvailableRides(prev => prev.filter(r => r.id !== cancelledRideId));
+
+                    // 3. Clear from incoming offer if matching
+                    if (incomingOfferRef.current?.rideId === cancelledRideId) {
                         setIncomingOffer(null);
                         if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
                     }
-                } else if (payload.type === "RIDE_TAKEN" || payload.type === "RIDE_CANCELLED") {
-                    if (incomingOfferRef.current?.rideId === payload.rideId) {
+
+                    // 4. Trigger database synchronization
+                    if (user?.id) fetchRides(user.id);
+                } else if (payload.type === "RIDE_TAKEN") {
+                    const takenRideId = payload.rideId || payload.data?.id;
+                    setAvailableRides(prev => prev.filter(r => r.id !== takenRideId));
+                    if (incomingOfferRef.current?.rideId === takenRideId) {
                         setIncomingOffer(null);
                         if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
                     }
+                    if (user?.id) fetchRides(user.id);
+                } else if (payload.type === "DRIVER_ARRIVED" || payload.type === "RIDE_STARTED") {
+                    const targetId = payload.rideId || payload.data?.id;
+                    if (activeRideRef.current && activeRideRef.current.id === targetId && payload.data) {
+                        setActiveRide(payload.data);
+                        activeRideRef.current = payload.data;
+                    }
+                    if (user?.id) fetchRides(user.id);
+                } else if (payload.type === "RIDE_UPDATED") {
+                    const rideData = payload.data;
+                    const updateRideId = payload.rideId || rideData?.id;
+
+                    if (rideData?.status === "CANCELLED") {
+                        if (activeRideRef.current && activeRideRef.current.id === updateRideId) {
+                            playCancelSound();
+                            setActiveRide(null);
+                            activeRideRef.current = null;
+                            setCancelledRideAlert({
+                                rideId: updateRideId,
+                                reference: rideData.bookingReference || updateRideId.slice(-6).toUpperCase(),
+                                clientName: rideData.rider?.name || rideData.guestName || "Customer",
+                                reason: rideData.reason || "Cancelled by customer/dispatch",
+                                cancelledBy: rideData.cancelledBy || "RIDER"
+                            });
+                        }
+                        setAvailableRides(prev => prev.filter(r => r.id !== updateRideId));
+                    } else if (activeRideRef.current && activeRideRef.current.id === updateRideId) {
+                        if (rideData?.status === "COMPLETED") {
+                            setViewingReceiptRide(rideData);
+                            setActiveRide(null);
+                            activeRideRef.current = null;
+                        } else {
+                            setActiveRide(rideData);
+                            activeRideRef.current = rideData;
+                        }
+                    }
+                    if (user?.id) fetchRides(user.id);
                 }
             } catch {}
         };
@@ -482,13 +686,16 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             sse.close();
             if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
         };
-    }, [user, isOnline, approvalStatus, playChimeSound, activeRide, driverProfileId, currentUser]);
+    }, [user, isOnline, approvalStatus, playChimeSound, playCancelSound, driverProfileId, currentUser]);
 
     const fetchRides = useCallback(async (userId: string) => {
         try {
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-            const res = await fetch("/api/rides", {
+            const res = await fetch(`/api/rides?_t=${Date.now()}`, {
+                cache: "no-store",
                 headers: {
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache",
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 }
             });
@@ -508,7 +715,25 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     ) &&
                     (r.status === "ACCEPTED" || r.status === "ARRIVED" || r.status === "IN_PROGRESS")
                 );
+
+                // Detect cancellation: if we had an active ride that was cancelled on the backend
+                const prevActive = activeRideRef.current;
+                if (prevActive && !myActiveRide) {
+                    const found = data.find(r => r.id === prevActive.id);
+                    if (found && found.status === "CANCELLED") {
+                        playCancelSound();
+                        setCancelledRideAlert({
+                            rideId: found.id,
+                            reference: found.bookingReference || found.id.slice(-6).toUpperCase(),
+                            clientName: found.rider?.name || found.guestName || "Customer",
+                            reason: found.notes || "Trip cancelled by customer/dispatch",
+                            cancelledBy: "RIDER"
+                        });
+                    }
+                }
+
                 setActiveRide(myActiveRide || null);
+                activeRideRef.current = myActiveRide || null;
 
                 // 2. Find completed rides for history & receipts
                 const myCompleted = data.filter(r =>
@@ -533,7 +758,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
         } finally {
             setLoading(false);
         }
-    }, [driverProfileId, user]);
+    }, [driverProfileId, user, playCancelSound]);
 
     useEffect(() => {
         if (user) {
@@ -574,10 +799,17 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 if (myCoords) {
                     broadcastLocation(myCoords.lat, myCoords.lng);
                 }
+            } else if (data.code === "RIDE_CANCELLED") {
+                alert(data.error || "This ride request was cancelled by the customer.");
+                setIncomingOffer(null);
+                if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                setAvailableRides(prev => prev.filter(r => r.id !== rideId));
+                fetchRides(user.id);
             } else if (res.status === 409 || data.code === "ALREADY_TAKEN") {
                 alert("Trip Claimed: Another nearby driver accepted this ride request.");
                 setIncomingOffer(null);
                 if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                setAvailableRides(prev => prev.filter(r => r.id !== rideId));
                 fetchRides(user.id);
             } else if (res.status === 402 || data.code === "INSUFFICIENT_WALLET_BALANCE") {
                 setIncomingOffer(null);
@@ -670,6 +902,16 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 fetchWallet();
                 alert(`Cannot Start Ride: ${data?.error || "Insufficient wallet balance to pay required ride deposit. Please fund your wallet to continue."}`);
                 return;
+            }
+            if (res.status === 400 || res.status === 409) {
+                const data = await res.json().catch(() => ({}));
+                if (data?.error?.toLowerCase().includes("cancel")) {
+                    alert(data.error || "This ride was cancelled by the customer.");
+                    setActiveRide(null);
+                    activeRideRef.current = null;
+                    if (user?.id) fetchRides(user.id);
+                    return;
+                }
             }
             if (res.ok) {
                 const updated = await res.json();
@@ -1405,6 +1647,148 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         </div>
                     )}
 
+                    {/* Driver-Initiated Ride Cancellation Modal */}
+                    {isCancelModalOpen && activeRide && (
+                        <div className="fixed inset-0 z-[210] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+                            <div className="bg-white rounded-3xl max-w-lg w-full border-2 border-red-500 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                <div className="bg-slate-900 text-white p-6 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center border border-red-500/30">
+                                            <AlertTriangle size={20} />
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-black tracking-wider uppercase text-red-400 block">Driver Cancellation</span>
+                                            <h3 className="text-lg font-black text-white">Cancel Assigned Ride</h3>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setIsCancelModalOpen(false)}
+                                        className="text-slate-400 hover:text-white p-2 rounded-xl transition-colors cursor-pointer"
+                                    >
+                                        <XCircle size={20} />
+                                    </button>
+                                </div>
+
+                                <div className="p-6 space-y-5">
+                                    {/* Ride Info Pill */}
+                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center justify-between">
+                                        <div>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase">Trip Reference</p>
+                                            <p className="font-black text-slate-900 text-sm">#{activeRide.bookingReference || activeRide.id.slice(-6).toUpperCase()}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase">Passenger</p>
+                                            <p className="font-bold text-slate-800 text-sm">{activeRide.rider?.name || activeRide.guestName || "Customer"}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Reason Selector */}
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-black text-slate-700 uppercase tracking-wider block">
+                                            Reason for Cancellation
+                                        </label>
+                                        <select
+                                            value={cancelReason}
+                                            onChange={(e) => setCancelReason(e.target.value)}
+                                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+                                        >
+                                            <option value="Passenger no-show / uncontactable">Passenger no-show / uncontactable</option>
+                                            <option value="Vehicle issue / mechanical trouble / flat tire">Vehicle issue / mechanical trouble</option>
+                                            <option value="Road impassable / severe traffic delay">Road impassable / severe traffic delay</option>
+                                            <option value="Passenger requested cancellation via call">Passenger requested cancellation via call</option>
+                                            <option value="Personal emergency / safety concern">Personal emergency / safety concern</option>
+                                            <option value="Other">Other reason (specify below)</option>
+                                        </select>
+                                    </div>
+
+                                    {cancelReason === "Other" && (
+                                        <div className="space-y-1">
+                                            <input
+                                                type="text"
+                                                placeholder="Please specify reason..."
+                                                value={cancelCustomReason}
+                                                onChange={(e) => setCancelCustomReason(e.target.value)}
+                                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Reassignment Option */}
+                                    <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl space-y-2">
+                                        <label className="flex items-start gap-3 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={cancelReturnToPool}
+                                                onChange={(e) => setCancelReturnToPool(e.target.checked)}
+                                                className="mt-1 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                                            />
+                                            <div className="text-xs">
+                                                <p className="font-bold text-amber-900">Return to Dispatch Queue (Recommended)</p>
+                                                <p className="text-amber-700 font-medium mt-0.5">
+                                                    Allows the AfriCab dispatch engine to instantly offer this trip to the next nearest driver so the passenger is not stranded.
+                                                </p>
+                                            </div>
+                                        </label>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="flex items-center gap-3 pt-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsCancelModalOpen(false)}
+                                            className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                                        >
+                                            Keep Ride
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={isCancellingTrip}
+                                            onClick={handleDriverCancelRide}
+                                            className="flex-[2] py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-colors shadow-lg shadow-red-600/20 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                                        >
+                                            {isCancellingTrip ? <Loader2 size={16} className="animate-spin" /> : <XCircle size={16} />}
+                                            {isCancellingTrip ? "Cancelling..." : "Confirm Cancellation"}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Customer Cancellation Notification Alert */}
+                    {cancelledRideAlert && (
+                        <div className="fixed inset-0 z-[230] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+                            <div className="bg-white rounded-3xl max-w-md w-full border-2 border-red-500 shadow-2xl overflow-hidden p-6 text-center space-y-4 animate-in fade-in zoom-in-95 duration-200">
+                                <div className="w-16 h-16 rounded-3xl bg-red-100 text-red-600 flex items-center justify-center mx-auto border-2 border-red-200">
+                                    <AlertTriangle size={32} />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <span className="text-[10px] font-black uppercase text-red-600 tracking-wider">Ride Update Alert</span>
+                                    <h3 className="text-xl font-black text-slate-900">Ride Cancelled by Customer</h3>
+                                    <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                                        Passenger <span className="font-bold text-slate-900">{cancelledRideAlert.clientName}</span> has cancelled trip <span className="font-bold text-slate-900">#{cancelledRideAlert.reference}</span>.
+                                    </p>
+                                    {cancelledRideAlert.reason && (
+                                        <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 p-2.5 rounded-xl font-medium italic">
+                                            "{cancelledRideAlert.reason}"
+                                        </p>
+                                    )}
+                                </div>
+                                <p className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 py-2 rounded-xl">
+                                    ✅ Your queue is clear. You are online and ready for new trips.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setCancelledRideAlert(null)}
+                                    className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-colors shadow-md cursor-pointer"
+                                >
+                                    Acknowledge & Continue
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Receipt Modal / Viewer if viewing receipt */}
                     {viewingReceiptRide && (
                         <div className="fixed inset-0 z-[200] bg-slate-900/70 backdrop-blur-sm overflow-y-auto flex" onClick={(e) => { if (e.target === e.currentTarget) setViewingReceiptRide(null); }}>
@@ -1750,6 +2134,16 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         </div>
 
                                         <div className="flex items-center gap-2">
+                                            {/* Cancel Ride Option for Driver */}
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsCancelModalOpen(true)}
+                                                className="px-4 py-3.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                                                title="Cancel or release this trip"
+                                            >
+                                                <XCircle size={15} /> Cancel Trip
+                                            </button>
+
                                             {activeRide.status === "ACCEPTED" && (
                                                 <button
                                                     type="button"

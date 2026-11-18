@@ -118,6 +118,8 @@ export default function DispatchPage() {
         const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
         return {
             "Content-Type": "application/json",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
             ...(token ? { "Authorization": `Bearer ${token}` } : {})
         };
     };
@@ -150,7 +152,7 @@ export default function DispatchPage() {
 
     const fetchRides = async () => {
         try {
-            const res = await fetch("/api/rides", { headers: getHeaders() });
+            const res = await fetch(`/api/rides?_t=${Date.now()}`, { cache: "no-store", headers: getHeaders() });
             const data = await res.json();
             if (res.ok) {
                 const newRequested = data.filter((r: Ride) => r.status === "REQUESTED");
@@ -244,11 +246,33 @@ export default function DispatchPage() {
             setUserRole(user.role);
         }
 
+        // Live SSE stream connection for instant dispatch dashboard updates
+        let sse: EventSource | null = null;
+        try {
+            sse = new EventSource("/api/rides/stream");
+            sse.onmessage = (event) => {
+                try {
+                    const payload = JSON.parse(event.data);
+                    if (["RIDE_REQUESTED", "RIDE_CANCELLED", "RIDE_ACCEPTED", "DRIVER_ASSIGNED", "DRIVER_ARRIVED", "RIDE_STARTED", "RIDE_COMPLETED", "WALLET_UPDATED", "DRIVER_ONLINE", "DRIVER_OFFLINE", "LOCATION_UPDATED"].includes(payload.type)) {
+                        fetchRides();
+                        fetchStats();
+                        if (payload.type === "DRIVER_ONLINE" || payload.type === "DRIVER_OFFLINE" || payload.type === "LOCATION_UPDATED") {
+                            fetchDrivers();
+                        }
+                    }
+                } catch {}
+            };
+        } catch {}
+
         const interval = setInterval(() => {
             fetchRides();
             fetchStats();
-        }, 10000);
-        return () => clearInterval(interval);
+        }, 4000);
+
+        return () => {
+            clearInterval(interval);
+            if (sse) sse.close();
+        };
     }, []);
 
     const openFareModal = (ride: Ride) => {

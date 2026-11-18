@@ -262,11 +262,25 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                         });
                     }
 
-                    if (["RIDE_ACCEPTED", "DRIVER_ARRIVED", "RIDE_UPDATED", "DRIVER_ASSIGNED", "RIDE_STARTED", "RIDE_CANCELLED", "RIDE_COMPLETED"].includes(type)) {
+                    if (type === "RIDE_CANCELLED") {
                         const myId = userIdRef.current;
                         const myRideId = activeRideIdRef.current;
                         if (data && (data.riderId === myId || data.id === myRideId || eventRideId === myRideId)) {
-                            setActiveRide(data);
+                            setActiveRide(null);
+                            prevRideRef.current = null;
+                            fetchRides();
+                        }
+                    } else if (["RIDE_ACCEPTED", "DRIVER_ARRIVED", "RIDE_UPDATED", "DRIVER_ASSIGNED", "RIDE_STARTED", "RIDE_COMPLETED"].includes(type)) {
+                        const myId = userIdRef.current;
+                        const myRideId = activeRideIdRef.current;
+                        if (data && (data.riderId === myId || data.id === myRideId || eventRideId === myRideId)) {
+                            if (data.status === "CANCELLED") {
+                                setActiveRide(null);
+                                prevRideRef.current = null;
+                                fetchRides();
+                            } else {
+                                setActiveRide(data);
+                            }
                         }
                     }
                 } catch {}
@@ -356,8 +370,11 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     const fetchRides = useCallback(async () => {
         try {
             const token = localStorage.getItem("token");
-            const res = await fetch("/api/rides", {
+            const res = await fetch(`/api/rides?_t=${Date.now()}`, {
+                cache: "no-store",
                 headers: {
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache",
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 }
             });
@@ -617,13 +634,43 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         if (!activeRide) return;
         if (!confirm("Are you sure you want to cancel this ride?")) return;
         try {
-            const res = await fetch("/api/rides", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id: activeRide.id, status: "CANCELLED" })
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const res = await fetch(`/api/rides/${activeRide.id}/cancel`, {
+                method: "POST",
+                headers: { 
+                    "Content-Type": "application/json",
+                    ...(token ? { "Authorization": `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({ 
+                    reason: "Cancelled by customer",
+                    cancelledBy: "RIDER"
+                })
             });
+
             if (res.ok) {
                 setActiveRide(null);
+                prevRideRef.current = null;
+                fetchRides();
+            } else {
+                // Fallback to PATCH /api/rides
+                const patchRes = await fetch("/api/rides", {
+                    method: "PATCH",
+                    headers: { 
+                        "Content-Type": "application/json",
+                        ...(token ? { "Authorization": `Bearer ${token}` } : {})
+                    },
+                    body: JSON.stringify({ 
+                        id: activeRide.id, 
+                        status: "CANCELLED",
+                        cancelledBy: "RIDER",
+                        reason: "Cancelled by customer"
+                    })
+                });
+                if (patchRes.ok) {
+                    setActiveRide(null);
+                    prevRideRef.current = null;
+                    fetchRides();
+                }
             }
         } catch (e) {
             console.error("Cancel ride error", e);
