@@ -1,13 +1,22 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { memoryCache } from "@/lib/cache";
+import { verifyJWT } from "@/lib/auth";
 
-export async function GET() {
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+};
+
+export async function GET(req: Request) {
     try {
-        const CACHE_KEY = "admin_dashboard_stats";
-        const cached = memoryCache.get<object>(CACHE_KEY);
-        if (cached) {
-            return NextResponse.json(cached);
+        // Require admin auth
+        const payload = await verifyJWT(req);
+        if (!payload || (payload.role !== "SUPER_ADMIN" && payload.role !== "ADMIN")) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: NO_CACHE_HEADERS });
         }
 
         const [totalUsers, activeDrivers, pendingRides, totalRevenue] = await Promise.all([
@@ -27,17 +36,9 @@ export async function GET() {
             totalRevenue: totalRevenue._sum.fare || 0
         };
 
-        // Cache for 30 seconds — dashboard polls every 10s, no need to hit DB each time
-        memoryCache.set(CACHE_KEY, result, 30);
-
-        return NextResponse.json(result);
+        return NextResponse.json(result, { headers: NO_CACHE_HEADERS });
     } catch (error) {
-        console.error("Dashboard stats error (using fallback):", error);
-        return NextResponse.json({
-            totalUsers: 148,
-            activeDrivers: 12,
-            pendingRides: 3,
-            totalRevenue: 2450.00
-        });
+        console.error("Dashboard stats error:", error);
+        return NextResponse.json({ error: "Failed to fetch stats" }, { status: 500, headers: NO_CACHE_HEADERS });
     }
 }
