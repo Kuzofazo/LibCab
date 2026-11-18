@@ -695,9 +695,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 title: activeRide.driver.user?.name || "Assigned Driver",
                 subtitle: activeRide.status === "ARRIVED" ? "Driver Arrived" : "Driver En Route",
                 type: "ASSIGNED_DRIVER",
-                vehicleType: "Car",
+                vehicleType: activeRide.driver.vehicleType || "Car",
                 heading: activeRide.driver.heading || 0,
                 rating: activeRide.driver.rating || 4.9,
+                etaText: activeRide.eta ? `${activeRide.eta} min` : undefined,
             });
         }
         mapMarkers.push({
@@ -707,6 +708,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             title: "Pick up",
             subtitle: activeRide.originAddress,
             type: "PICKUP",
+            etaText: activeRide.eta ? `${activeRide.eta} min` : undefined,
         });
         mapMarkers.push({
             id: "dest",
@@ -717,6 +719,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             type: "DESTINATION",
         });
     } else {
+        const closestDriverEta = nearbyDrivers.length > 0 ? nearbyDrivers[0].formattedEta : undefined;
+
         mapMarkers.push({
             id: "my_location",
             lat: userCoordinates.lat,
@@ -724,6 +728,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             title: "Your Location",
             subtitle: bookingData.pickup,
             type: "PICKUP",
+            etaText: closestDriverEta,
         });
 
         nearbyDrivers.forEach((driver) => {
@@ -738,8 +743,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 distanceText: driver.formattedDistance,
                 etaText: driver.formattedEta,
                 type: "AVAILABLE_DRIVER",
-                vehicleType: "Car",
-                heading: driver.heading || 0,
+                vehicleType: driver.vehicleType || "Car",
+                heading: driver.heading !== undefined && driver.heading !== null ? driver.heading : 0,
             });
         });
     }

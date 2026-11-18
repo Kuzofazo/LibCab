@@ -1139,7 +1139,8 @@ function GuestBookingContent() {
                                                 lng: userCoordinates.lng,
                                                 title: "Your Pickup",
                                                 subtitle: trip.pickup,
-                                                type: "PICKUP" as MapMarker["type"]
+                                                type: "PICKUP" as MapMarker["type"],
+                                                etaText: liveEta || undefined,
                                             } as MapMarker,
                                             ...(destCoords ? [{
                                                 id: "destination",

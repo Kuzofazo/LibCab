@@ -16,6 +16,7 @@ import { Map, Marker, Popup, Source, Layer, NavigationControl, MapRef } from "re
 import mapboxgl from "mapbox-gl";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
+import Vehicle3DMarker from "@/components/map/Vehicle3DMarker";
 
 let mapboxCssLoaded = false;
 function ensureMapboxCSS() {
@@ -87,70 +88,28 @@ export interface MapProps {
 
 // ─── Custom marker icons for Mapbox engine ─────────────────────────────────
 
-const VehicleMarkerIcon = ({
-    type = "Car",
-    color = "#22c55e",
-    heading = 0,
-    isAssigned = false,
-}: {
-    type?: string;
-    color?: string;
-    heading?: number;
-    isAssigned?: boolean;
-}) => {
-    const normType = (type || "car").toLowerCase();
-    const isBike = normType.includes("bike") || normType.includes("motor");
-    const isTricycle = normType.includes("tri") || normType.includes("keke");
-
-    return (
-        <div className="relative flex items-center justify-center transition-transform hover:scale-125 duration-300">
-            {isAssigned && <span className="absolute -inset-2 rounded-full bg-emerald-500/30 animate-ping" />}
-            <div
-                className={cn(
-                    "relative p-2 rounded-2xl border-2 shadow-2xl backdrop-blur-md transition-all flex items-center justify-center",
-                    isAssigned
-                        ? "bg-emerald-600 text-white border-white ring-4 ring-emerald-500/40 scale-110"
-                        : color === "#22c55e"
-                        ? "bg-slate-900 text-emerald-400 border-emerald-500/80"
-                        : "bg-slate-900 text-red-400 border-red-500/80"
-                )}
-                style={{ transform: heading ? `rotate(${heading}deg)` : undefined }}
-            >
-                {isBike ? (
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="5.5" cy="17.5" r="3.5" /><circle cx="18.5" cy="17.5" r="3.5" />
-                        <path d="M15 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-3 11.5L9 9l3-3 3 2 3-2" />
-                        <path d="m14 11.5 4.5 6" />
-                    </svg>
-                ) : isTricycle ? (
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="5" cy="18" r="3" /><circle cx="19" cy="18" r="3" />
-                        <path d="M12 4v4l-4 7h11l-3-6h-3" /><circle cx="12" cy="4" r="1.5" />
-                    </svg>
-                ) : (
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18.7 7.8c-.2-.5-.7-.8-1.2-.8H6.5c-.5 0-1 .3-1.2.8L3.5 11.1c-.8.2-1.5 1-1.5 1.9v3c0 .6.4 1 1 1h2" />
-                        <circle cx="7" cy="17" r="2" /><circle cx="17" cy="17" r="2" /><path d="M5 17h10" />
-                    </svg>
-                )}
-            </div>
-        </div>
-    );
-};
-
-const PinIcon = ({ type }: { type: string }) => {
+const PinIcon = ({ type, etaText }: { type: string; etaText?: string }) => {
     const isPickup = type === "PICKUP";
-    return (
-        <div className="relative flex flex-col items-center justify-center transition-transform hover:scale-125 duration-300">
-            <span className={cn("absolute -inset-1 rounded-full animate-ping opacity-60", isPickup ? "bg-emerald-400" : "bg-red-400")} />
-            <div className={cn("p-2 rounded-2xl border-2 shadow-2xl flex items-center justify-center", isPickup ? "bg-emerald-600 text-white border-white ring-4 ring-emerald-500/30" : "bg-red-600 text-white border-white ring-4 ring-red-500/30")}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="white" strokeWidth="1.5">
-                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 0 1 0-5 2.5 2.5 0 0 1 0 5z" />
-                </svg>
+    if (isPickup) {
+        return (
+            <div className="relative flex flex-col items-center justify-center cursor-pointer group">
+                {etaText && (
+                    <div className="absolute -top-7 bg-white text-slate-900 font-black text-[11px] px-2.5 py-0.5 rounded-full shadow-lg border border-slate-200 whitespace-nowrap flex items-center gap-1.5 z-30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>{etaText}</span>
+                    </div>
+                )}
+                <div className="w-6 h-6 rounded-full bg-black border-2 border-white shadow-xl flex items-center justify-center transition-transform group-hover:scale-110">
+                    <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                </div>
             </div>
-            <span className="text-[9px] font-black uppercase tracking-wider text-white bg-black/80 px-2 py-0.5 rounded-full mt-1 shadow-md border border-white/20">
-                {isPickup ? "Pickup" : "Destination"}
-            </span>
+        );
+    }
+    return (
+        <div className="relative flex flex-col items-center justify-center cursor-pointer group">
+            <div className="w-6 h-6 rounded-md bg-black border-2 border-white shadow-xl flex items-center justify-center transition-transform group-hover:scale-110">
+                <div className="w-2.5 h-2.5 rounded-xs bg-white" />
+            </div>
         </div>
     );
 };
@@ -269,7 +228,7 @@ function MapboxEngine({
         <div className={cn("relative transition-all duration-700 overflow-hidden", fullScreen ? "fixed inset-0 z-0 h-screen w-screen" : "h-full w-full rounded-3xl", className)}>
             <Map
                 ref={mapRef}
-                initialViewState={{ latitude: center[0], longitude: center[1], zoom }}
+                initialViewState={{ latitude: center[0], longitude: center[1], zoom, pitch: 45, bearing: 0 }}
                 mapStyle="mapbox://styles/mapbox/streets-v12"
                 mapboxAccessToken={MAPBOX_TOKEN}
                 style={{ width: "100%", height: "100%" }}
@@ -297,9 +256,16 @@ function MapboxEngine({
                         >
                             <div className="cursor-pointer" onClick={() => { setActivePopupMarker(marker); if (onMarkerClick) onMarkerClick(marker); }}>
                                 {marker.type.includes("DRIVER") ? (
-                                    <VehicleMarkerIcon type={marker.vehicleType} color={marker.type === "AVAILABLE_DRIVER" || marker.type === "ASSIGNED_DRIVER" ? "#22c55e" : "#ef4444"} heading={marker.heading} isAssigned={marker.type === "ASSIGNED_DRIVER"} />
+                                    <Vehicle3DMarker
+                                        type={marker.vehicleType}
+                                        heading={marker.heading || 0}
+                                        isAssigned={marker.type === "ASSIGNED_DRIVER"}
+                                        etaText={marker.etaText}
+                                        rating={marker.rating}
+                                        driverName={marker.title}
+                                    />
                                 ) : (
-                                    <PinIcon type={marker.type} />
+                                    <PinIcon type={marker.type} etaText={marker.etaText} />
                                 )}
                             </div>
                         </Marker>

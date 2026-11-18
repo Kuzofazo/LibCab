@@ -1,17 +1,10 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { APIProvider, Map, AdvancedMarker, Pin, InfoWindow, useMap } from "@vis.gl/react-google-maps";
+import { APIProvider, Map, AdvancedMarker, InfoWindow, useMap } from "@vis.gl/react-google-maps";
 import { cn } from "@/lib/utils";
 import type { MapMarker, MapRoute, MapProps } from "@/components/MapComponent";
-
-// ─── Vehicle emoji ─────────────────────────────────────────────────────────
-function vehicleEmoji(type?: string) {
-    const t = (type || "").toLowerCase();
-    if (t.includes("bike") || t.includes("motor")) return "🏍";
-    if (t.includes("tri") || t.includes("keke")) return "🛺";
-    return "🚗";
-}
+import Vehicle3DMarker from "@/components/map/Vehicle3DMarker";
 
 // ─── Inner map with route drawing ─────────────────────────────────────────
 function InnerGoogleMap({
@@ -65,7 +58,7 @@ function InnerGoogleMap({
                         map,
                         strokeColor: route.color || "#0f172a",
                         strokeWeight: 5,
-                        strokeOpacity: 0.85,
+                        strokeOpacity: 0.9,
                     });
                     polylinesRef.current.push(poly);
 
@@ -83,7 +76,7 @@ function InnerGoogleMap({
                 // Fallback below
             }
 
-            // Ultimate fallback: straight-line arrow polyline
+            // Fallback: straight-line polyline
             const poly = new google.maps.Polyline({
                 path: [
                     { lat: route.origin[0], lng: route.origin[1] },
@@ -91,9 +84,8 @@ function InnerGoogleMap({
                 ],
                 map,
                 strokeColor: route.color || "#0f172a",
-                strokeWeight: 4,
-                strokeOpacity: 0.6,
-                icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW }, offset: "50%" }],
+                strokeWeight: 5,
+                strokeOpacity: 0.85,
             });
             polylinesRef.current.push(poly);
         });
@@ -123,31 +115,34 @@ function InnerGoogleMap({
                             }}
                         >
                             {isDriver ? (
-                                <div
-                                    style={{
-                                        background: isAssigned ? "#059669" : "#0f172a",
-                                        color: "#fff",
-                                        padding: "7px 10px",
-                                        borderRadius: "14px",
-                                        fontSize: "16px",
-                                        border: "2px solid #fff",
-                                        boxShadow: isAssigned ? "0 0 0 4px rgba(5,150,105,.3)" : "0 2px 12px rgba(0,0,0,.4)",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: "4px",
-                                        transform: m.heading ? `rotate(${m.heading}deg)` : undefined,
-                                    }}
-                                >
-                                    {vehicleEmoji(m.vehicleType)}
+                                <Vehicle3DMarker
+                                    type={m.vehicleType}
+                                    heading={m.heading || 0}
+                                    isAssigned={isAssigned}
+                                    etaText={m.etaText}
+                                    rating={m.rating}
+                                    driverName={m.title}
+                                />
+                            ) : isPickup ? (
+                                /* Uber/Bolt Style Black Circle Pickup Pin with ETA */
+                                <div className="relative flex flex-col items-center justify-center cursor-pointer group">
+                                    {m.etaText && (
+                                        <div className="absolute -top-7 bg-white text-slate-900 font-black text-[11px] px-2.5 py-0.5 rounded-full shadow-lg border border-slate-200 whitespace-nowrap flex items-center gap-1.5 z-30">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                            <span>{m.etaText}</span>
+                                        </div>
+                                    )}
+                                    <div className="w-6 h-6 rounded-full bg-black border-2 border-white shadow-xl flex items-center justify-center transition-transform group-hover:scale-110">
+                                        <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                                    </div>
                                 </div>
                             ) : (
-                                <Pin
-                                    background={isPickup ? "#16a34a" : "#dc2626"}
-                                    borderColor="#fff"
-                                    glyphColor="#fff"
-                                    glyph={isPickup ? "P" : "D"}
-                                    scale={1.2}
-                                />
+                                /* Clean Black Square Destination Pin */
+                                <div className="relative flex flex-col items-center justify-center cursor-pointer group">
+                                    <div className="w-6 h-6 rounded-md bg-black border-2 border-white shadow-xl flex items-center justify-center transition-transform group-hover:scale-110">
+                                        <div className="w-2.5 h-2.5 rounded-xs bg-white" />
+                                    </div>
+                                </div>
                             )}
                         </AdvancedMarker>
 
@@ -157,7 +152,7 @@ function InnerGoogleMap({
                                 position={{ lat: m.lat, lng: m.lng }}
                                 onCloseClick={() => setActiveMarker(null)}
                             >
-                                <div style={{ fontFamily: "system-ui,sans-serif", minWidth: "180px" }}>
+                                <div style={{ fontFamily: "system-ui,sans-serif", minWidth: "190px" }}>
                                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #e2e8f0", paddingBottom: "6px", marginBottom: "6px" }}>
                                         <b style={{ fontSize: "13px", color: "#0f172a" }}>{m.title}</b>
                                         {m.rating && (
@@ -183,7 +178,7 @@ function InnerGoogleMap({
     );
 }
 
-// ─── GoogleMapEngine (exported) ─────────────────────────────────────────────
+// ─── GoogleMapEngine (exported) ───────────────────────────────────────────
 export default function GoogleMapEngine({
     center = [6.3156, -10.8074],
     zoom = 14,
@@ -215,6 +210,8 @@ export default function GoogleMapEngine({
                     streetViewControl={false}
                     fullscreenControl={false}
                     mapTypeControl={false}
+                    tilt={45}
+                    heading={0}
                     style={{ width: "100%", height: "100%" }}
                 >
                     <InnerGoogleMap
