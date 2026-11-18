@@ -268,6 +268,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                         if (data && (data.riderId === myId || data.id === myRideId || eventRideId === myRideId)) {
                             setActiveRide(null);
                             prevRideRef.current = null;
+                            try { localStorage.removeItem("africab_active_ride_id"); } catch {}
                             fetchRides();
                         }
                     } else if (["RIDE_ACCEPTED", "DRIVER_ARRIVED", "RIDE_UPDATED", "DRIVER_ASSIGNED", "RIDE_STARTED", "RIDE_COMPLETED"].includes(type)) {
@@ -277,6 +278,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                             if (data.status === "CANCELLED") {
                                 setActiveRide(null);
                                 prevRideRef.current = null;
+                                try { localStorage.removeItem("africab_active_ride_id"); } catch {}
                                 fetchRides();
                             } else {
                                 setActiveRide(data);
@@ -380,15 +382,27 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             });
             const data = await res.json();
             if (Array.isArray(data)) {
-                const myActive = data.find(r => 
-                    ["REQUESTED", "ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS", "COMPLETED"].includes(r.status) &&
-                    !r.isArchived
+                // Include ASSIGNED and PENDING so customer-selected driver rides survive refresh
+                const ACTIVE_STATUSES = ["PENDING", "ASSIGNED", "REQUESTED", "ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS", "COMPLETED"];
+                const myActive = data.find(r =>
+                    ACTIVE_STATUSES.includes(r.status) &&
+                    !r.isArchived &&
+                    // Scope to this rider's own rides (belt-and-suspenders guard)
+                    (r.riderId === user?.id || r.rider?.id === user?.id)
                 );
-                
+
+                if (myActive) {
+                    // Persist active ride ID so page refresh can restore it
+                    try { localStorage.setItem("africab_active_ride_id", myActive.id); } catch {}
+                } else {
+                    // If nothing active, clear the stored key (ride completed / truly gone)
+                    try { localStorage.removeItem("africab_active_ride_id"); } catch {}
+                }
+
                 if (myActive && myActive.status === "COMPLETED" && (!activeRide || activeRide.status !== "COMPLETED")) {
                     setRatingSubmitted(false);
                 }
-                
+
                 if (rideChanged(prevRideRef.current, myActive)) {
                     prevRideRef.current = myActive;
                     setActiveRide(myActive);
@@ -397,12 +411,12 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         } catch (error) {
             console.error("Failed to fetch rides", error);
         }
-    }, [activeRide]);
+    }, [activeRide, user?.id]);
 
     useEffect(() => {
         if (user) {
             fetchRides();
-            const pollMs = activeRide && ["REQUESTED", "ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"].includes(activeRide.status) ? 3000 : 8000;
+            const pollMs = activeRide && ["REQUESTED", "ASSIGNED", "ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"].includes(activeRide.status) ? 3000 : 8000;
             const interval = setInterval(() => fetchRides(), pollMs);
             return () => clearInterval(interval);
         }
@@ -593,6 +607,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             if (res.ok) {
                 const newRide = await res.json();
                 setActiveRide(newRide);
+                // Persist so page refresh doesn't lose the active ride
+                try { if (newRide?.id) localStorage.setItem("africab_active_ride_id", newRide.id); } catch {}
             } else {
                 const error = await res.json();
                 try {
@@ -618,6 +634,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                     if (guestRes.ok) {
                         const guestRide = await guestRes.json();
                         setActiveRide(guestRide);
+                        try { if (guestRide?.id) localStorage.setItem("africab_active_ride_id", guestRide.id); } catch {}
                         return;
                     }
                 } catch {}
@@ -650,6 +667,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             if (res.ok) {
                 setActiveRide(null);
                 prevRideRef.current = null;
+                try { localStorage.removeItem("africab_active_ride_id"); } catch {}
                 fetchRides();
             } else {
                 // Fallback to PATCH /api/rides
@@ -669,6 +687,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 if (patchRes.ok) {
                     setActiveRide(null);
                     prevRideRef.current = null;
+                    try { localStorage.removeItem("africab_active_ride_id"); } catch {}
                     fetchRides();
                 }
             }

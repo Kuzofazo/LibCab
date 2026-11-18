@@ -88,7 +88,8 @@ export async function POST(req: Request) {
             });
             if (driverProfile) {
                 resolvedDriverProfileId = driverProfile.id;
-                initialStatus = "ACCEPTED";
+                // Keep ASSIGNED so driver must accept via the ride-offer alert
+                initialStatus = "ASSIGNED";
             }
         }
 
@@ -122,13 +123,91 @@ export async function POST(req: Request) {
 
         // 5. Broadcast to live SSE stream for real-time dispatchers & admins
         try {
-            rideStreamManager.publish({
-                type: initialStatus === "ACCEPTED" ? "RIDE_ACCEPTED" : "RIDE_REQUESTED",
-                rideId: ride.id,
-                driverId: resolvedDriverProfileId || undefined,
-                data: ride,
-                timestamp: new Date().toISOString()
-            });
+            if (!resolvedDriverProfileId) {
+                // No driver selected: broadcast to all for auto-dispatch
+                rideStreamManager.publish({
+                    type: "RIDE_REQUESTED",
+                    rideId: ride.id,
+                    data: ride,
+                    timestamp: new Date().toISOString()
+                });
+            } else {
+                // Driver was manually selected:
+                // Create a RideOffer so the driver gets the Accept prompt
+                const offerExpiresAt = new Date(Date.now() + 60_000);
+                await prisma.rideOffer.upsert({
+                    where: { rideId_driverId: { rideId: ride.id, driverId: resolvedDriverProfileId } },
+                    create: {
+                        rideId: ride.id,
+                        driverId: resolvedDriverProfileId,
+                        status: "PENDING",
+                        expiresAt: offerExpiresAt,
+                    },
+                    update: {
+                        status: "PENDING",
+                        expiresAt: offerExpiresAt,
+                    },
+                }).catch((err) => console.error("Failed to create guest RideOffer:", err));
+
+                // Fire RIDE_OFFER_RECEIVED so the driver's dashboard shows the Accept button
+                rideStreamManager.publish({
+                    type: "RIDE_OFFER_RECEIVED",
+                    rideId: ride.id,
+                    driverId: resolvedDriverProfileId,
+                    data: {
+                        ride,
+                        offerExpiresAt: offerExpiresAt.toISOString(),
+                        countdownSeconds: 60,
+                    },
+                    timestamp: new Date().toISOString()
+                });
+
+                // Also fire DRIVER_ASSIGNED for broader awareness
+                rideStreamManager.publish({
+                    type: "DRIVER_ASSIGNED",
+                    rideId: ride.id,
+                    driverId: resolvedDriverProfileId,
+                    data: ride,
+                    timestamp: new Date().toISOString()
+                });
+
+                // Push notification to the selected driver
+                try {
+                    const dp = await prisma.driverProfile.findUnique({
+                        where: { id: resolvedDriverProfileId },
+                        select: { pushToken: true, fcmToken: true, soundEnabled: true, vibrationEnabled: true },
+                    });
+                    if (dp) {
+                        const { PushNotificationService } = await import("@/services/pushNotificationService");
+                        await PushNotificationService.notifyDriversOfRideRequest(
+                            [{
+                                id: resolvedDriverProfileId,
+                                pushToken: dp.pushToken,
+                                fcmToken: dp.fcmToken,
+                                soundEnabled: dp.soundEnabled !== false,
+                                vibrationEnabled: dp.vibrationEnabled !== false,
+                            }],
+                            {
+                                rideId: ride.id,
+                                originAddress: ride.originAddress,
+                                destAddress: ride.destAddress,
+                                originLat: ride.originLat || 0,
+                                originLng: ride.originLng || 0,
+                                destLat: ride.destLat || 0,
+                                destLng: ride.destLng || 0,
+                                distanceKm: 0,
+                                etaMinutes: 0,
+                                fare: ride.fare || 0,
+                                vehicleType: ride.vehicleType,
+                                rideCategory: ride.rideCategory,
+                                expiresAt: offerExpiresAt.toISOString(),
+                            }
+                        ).catch(() => {});
+                    }
+                } catch (pushErr) {
+                    console.warn("Guest driver assignment push notification error:", pushErr);
+                }
+            }
         } catch (streamErr) {
             console.error("SSE stream broadcast error:", streamErr);
         }

@@ -171,6 +171,29 @@ function GuestBookingContent() {
         }
     }, []);
 
+    // 1b. On mount: restore an active guest ride from localStorage so refresh keeps tracking screen
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const storedRideId = localStorage.getItem("guest_active_ride_id");
+        if (!storedRideId || rideId) return; // already in state
+
+        // Verify the ride is still active before restoring step 3
+        fetch(`/api/rides/${storedRideId}/public`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => {
+                if (data && data.id && !["CANCELLED", "COMPLETED"].includes(data.status || "")) {
+                    setRideId(data.id);
+                    setDriver(data);
+                    setStep(3);
+                } else {
+                    // Ride is gone — clean up
+                    localStorage.removeItem("guest_active_ride_id");
+                }
+            })
+            .catch(() => { localStorage.removeItem("guest_active_ride_id"); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const [manualRefreshTick, setManualRefreshTick] = useState(0);
 
     // 2. Fetch Nearby Drivers
@@ -243,6 +266,10 @@ function GuestBookingContent() {
                     if (["RIDE_ACCEPTED", "DRIVER_ARRIVED", "RIDE_UPDATED", "DRIVER_ASSIGNED", "RIDE_STARTED", "RIDE_CANCELLED", "RIDE_COMPLETED"].includes(type)) {
                         if (data && (data.id === rideId || parsed.rideId === rideId)) {
                             setDriver(data);
+                            // Clear localStorage if ride is finished
+                            if (data.status === "CANCELLED" || data.status === "COMPLETED") {
+                                try { localStorage.removeItem("guest_active_ride_id"); } catch {}
+                            }
                             // Update live coords from driver location if present
                             if (data.driver?.currentLat && data.driver?.currentLng) {
                                 setDriverLiveCoords({
@@ -271,6 +298,10 @@ function GuestBookingContent() {
                         }
                         return prev;
                     });
+                    // Clear persistence when ride is finished so next session starts fresh
+                    if (data.status === "CANCELLED" || data.status === "COMPLETED") {
+                        try { localStorage.removeItem("guest_active_ride_id"); } catch {}
+                    }
                     if (data.driver?.currentLat && data.driver?.currentLng) {
                         setDriverLiveCoords({
                             lat: data.driver.currentLat,
@@ -347,6 +378,8 @@ function GuestBookingContent() {
                 }
                 setRideId(ride.id);
                 setDriver(ride);
+                // Persist so browser refresh restores step 3 tracking screen
+                try { if (ride.id) localStorage.setItem("guest_active_ride_id", ride.id); } catch {}
                 setStep(3);
             } else {
                 const errData = await res.json();
@@ -1068,22 +1101,25 @@ function GuestBookingContent() {
                         <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
                             {/* Status Header with color-coded banners */}
                             <div className="border-b border-slate-100 pb-4 space-y-3">
-                                {/* REQUESTED: Searching */}
-                                {(!driver?.status || driver?.status === "REQUESTED") && !driver?.driver && (
+                                {/* REQUESTED / ASSIGNED / PENDING: Searching or waiting for driver to accept */}
+                                {(!driver?.status || driver?.status === "REQUESTED" || driver?.status === "ASSIGNED" || driver?.status === "PENDING") && !driver?.driver && (
                                     <div className="flex items-center gap-3">
                                         <span className="relative flex h-3.5 w-3.5 shrink-0">
                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
                                             <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-amber-500" />
                                         </span>
                                         <div>
-                                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 block">Connecting With Nearest Driver</span>
-                                            <p className="text-lg font-black text-slate-950">Broadcasting to Monrovia Network...</p>
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 block">
+                                                {driver?.status === "ASSIGNED" ? "Driver Notified — Awaiting Acceptance" : "Connecting With Nearest Driver"}
+                                            </span>
+                                            <p className="text-lg font-black text-slate-950">
+                                                {driver?.status === "ASSIGNED" ? "Your selected driver is reviewing the request…" : "Broadcasting to Monrovia Network..."}
+                                            </p>
                                         </div>
                                     </div>
                                 )}
                                 {/* ACCEPTED / EN_ROUTE */}
-                                {(driver?.status === "ACCEPTED" || driver?.status === "EN_ROUTE" || (driver?.driver && !driver?.status)) && (
-                                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+                                {(driver?.status === "ACCEPTED" || driver?.status === "EN_ROUTE" || (driver?.driver && !driver?.status)) && (                                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 flex items-center gap-3">
                                         <span className="relative flex h-3.5 w-3.5 shrink-0">
                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                                             <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500" />
@@ -1274,6 +1310,7 @@ function GuestBookingContent() {
                                                     headers: { "Content-Type": "application/json" },
                                                     body: JSON.stringify({ rideId, sessionId: session, status: "CANCELLED" })
                                                 });
+                                                try { localStorage.removeItem("guest_active_ride_id"); } catch {}
                                                 setStep(2);
                                                 setRideId(null);
                                                 setDriver(null);

@@ -15,6 +15,14 @@ export async function GET(req: Request) {
 
         let whereClause: any = { isArchived: false };
 
+        // ── RIDER: Only return this rider's own rides ──────────────────────────
+        if (user.role === "RIDER") {
+            whereClause = {
+                isArchived: false,
+                riderId: user.userId,
+            };
+        }
+
         if (user.role === "DRIVER") {
             try {
                 let driverProfileId = user.userId;
@@ -162,7 +170,8 @@ export async function POST(req: Request) {
 
             if (driverProfile) {
                 resolvedDriverProfileId = driverProfile.id;
-                initialStatus = "ACCEPTED";
+                // Keep status as ASSIGNED so driver must explicitly accept via the ride alert
+                initialStatus = "ASSIGNED";
             }
         }
 
@@ -308,20 +317,94 @@ export async function POST(req: Request) {
         // Trigger autonomous dispatch ONLY if not scheduled for later
         if (!isRideScheduled) {
             if (!resolvedDriverProfileId) {
+                // No driver selected: auto-dispatch to nearby drivers
                 DispatchEngine.autoDispatchRide(newRide.id).catch((err) =>
                     console.error("Auto dispatch background task error:", err)
                 );
-            }
 
-            // Publish SSE Event for Admin, Riders, and Drivers
-            const eventType = initialStatus === "ACCEPTED" ? "RIDE_ACCEPTED" : "RIDE_REQUESTED";
-            rideStreamManager.publish({
-                type: eventType,
-                rideId: newRide.id,
-                driverId: resolvedDriverProfileId,
-                data: newRide,
-                timestamp: new Date().toISOString(),
-            });
+                rideStreamManager.publish({
+                    type: "RIDE_REQUESTED",
+                    rideId: newRide.id,
+                    data: newRide,
+                    timestamp: new Date().toISOString(),
+                });
+            } else {
+                // Driver was manually selected by customer:
+                // 1. Create a RideOffer so the driver gets the Accept prompt
+                const offerExpiresAt = new Date(Date.now() + 60_000); // 60-second window
+                await prisma.rideOffer.upsert({
+                    where: { rideId_driverId: { rideId: newRide.id, driverId: resolvedDriverProfileId } },
+                    create: {
+                        rideId: newRide.id,
+                        driverId: resolvedDriverProfileId,
+                        status: "PENDING",
+                        expiresAt: offerExpiresAt,
+                    },
+                    update: {
+                        status: "PENDING",
+                        expiresAt: offerExpiresAt,
+                    },
+                }).catch((err) => console.error("Failed to create RideOffer for selected driver:", err));
+
+                // 2. Notify the selected driver via SSE with RIDE_OFFER_RECEIVED (shows Accept button)
+                rideStreamManager.publish({
+                    type: "RIDE_OFFER_RECEIVED",
+                    rideId: newRide.id,
+                    driverId: resolvedDriverProfileId,
+                    data: {
+                        ride: newRide,
+                        offerExpiresAt: offerExpiresAt.toISOString(),
+                        countdownSeconds: 60,
+                    },
+                    timestamp: new Date().toISOString(),
+                });
+
+                // 3. Also publish DRIVER_ASSIGNED for broader dashboard awareness
+                rideStreamManager.publish({
+                    type: "DRIVER_ASSIGNED",
+                    rideId: newRide.id,
+                    driverId: resolvedDriverProfileId,
+                    data: newRide,
+                    timestamp: new Date().toISOString(),
+                });
+
+                // 4. Send push notification to the selected driver
+                try {
+                    const driverProfile = await prisma.driverProfile.findUnique({
+                        where: { id: resolvedDriverProfileId },
+                        select: { pushToken: true, fcmToken: true, soundEnabled: true, vibrationEnabled: true },
+                    });
+                    if (driverProfile) {
+                        const { PushNotificationService } = await import("@/services/pushNotificationService");
+                        await PushNotificationService.notifyDriversOfRideRequest(
+                            [{
+                                id: resolvedDriverProfileId,
+                                pushToken: driverProfile.pushToken,
+                                fcmToken: driverProfile.fcmToken,
+                                soundEnabled: driverProfile.soundEnabled !== false,
+                                vibrationEnabled: driverProfile.vibrationEnabled !== false,
+                            }],
+                            {
+                                rideId: newRide.id,
+                                originAddress: newRide.originAddress,
+                                destAddress: newRide.destAddress,
+                                originLat: newRide.originLat || 0,
+                                originLng: newRide.originLng || 0,
+                                destLat: newRide.destLat || 0,
+                                destLng: newRide.destLng || 0,
+                                distanceKm: 0,
+                                etaMinutes: 0,
+                                fare: newRide.fare || 0,
+                                vehicleType: newRide.vehicleType,
+                                rideCategory: newRide.rideCategory,
+                                expiresAt: offerExpiresAt.toISOString(),
+                            }
+                        ).catch(() => {});
+                    }
+                } catch (pushErr) {
+                    console.warn("Driver assignment push notification error:", pushErr);
+                }
+            }
         }
 
         // Save response in idempotency cache if key supplied

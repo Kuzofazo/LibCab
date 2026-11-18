@@ -56,7 +56,7 @@ export async function POST(req: Request) {
         // Verify ride existence and status prior to accepting
         const targetRide = await prisma.ride.findUnique({
             where: { id: rideId },
-            select: { id: true, status: true, bookingReference: true }
+            select: { id: true, status: true, bookingReference: true, driverId: true }
         });
 
         if (!targetRide) {
@@ -70,7 +70,9 @@ export async function POST(req: Request) {
             }, { status: 409 });
         }
 
-        if (targetRide.status !== "REQUESTED") {
+        // Allow accepting REQUESTED rides (open pool) OR ASSIGNED rides (customer selected this driver)
+        const isAssignedToMe = targetRide.status === "ASSIGNED" && targetRide.driverId === driverProfile.id;
+        if (targetRide.status !== "REQUESTED" && !isAssignedToMe) {
             return NextResponse.json({
                 error: "This ride is no longer available.",
                 code: "ALREADY_TAKEN"

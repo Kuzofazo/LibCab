@@ -416,7 +416,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                             };
                             try {
                                 localStorage.setItem("user", JSON.stringify(updated));
-                            } catch {}
+                            } catch { }
                             return updated;
                         });
                     }
@@ -430,7 +430,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 Authorization: `Bearer ${token}`
                             },
                             body: JSON.stringify({ isOnline: true })
-                        }).catch(() => {});
+                        }).catch(() => { });
                     }
                 }
             } catch (err) {
@@ -491,7 +491,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                     const parsed = JSON.parse(stored);
                                     localStorage.setItem("user", JSON.stringify({ ...parsed, approvalStatus: newStatus, rejectionReason: reason }));
                                 }
-                            } catch {}
+                            } catch { }
                             if (newStatus !== "APPROVED") {
                                 setIsOnline(false);
                             }
@@ -704,7 +704,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     }
                     if (user?.id) fetchRides(user.id);
                 }
-            } catch {}
+            } catch { }
         };
 
         return () => {
@@ -731,8 +731,8 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 // 1. Find my active ride (Assigned / Pending / Accepted / Arrived / In Progress)
                 const myActiveRide = data.find(r =>
                     (
-                        r.driver?.userId === userId || 
-                        r.driverId === userId || 
+                        r.driver?.userId === userId ||
+                        r.driverId === userId ||
                         r.driver?.id === userId ||
                         r.driverId === driverProfileId ||
                         r.driver?.id === driverProfileId ||
@@ -768,8 +768,8 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 // 2. Find completed rides for history & receipts
                 const myCompleted = data.filter(r =>
                     (
-                        r.driver?.userId === userId || 
-                        r.driverId === userId || 
+                        r.driver?.userId === userId ||
+                        r.driverId === userId ||
                         r.driver?.id === userId ||
                         r.driverId === driverProfileId ||
                         r.driver?.id === driverProfileId ||
@@ -806,7 +806,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
             const res = await fetch("/api/rides/accept", {
                 method: "POST",
-                headers: { 
+                headers: {
                     "Content-Type": "application/json",
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 },
@@ -871,13 +871,13 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
             await fetch("/api/rides/decline", {
                 method: "POST",
-                headers: { 
+                headers: {
                     "Content-Type": "application/json",
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 },
                 body: JSON.stringify({ rideId })
             });
-        } catch {}
+        } catch { }
     };
 
     // Test Audio & Notification
@@ -912,7 +912,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
             const res = await fetch("/api/rides", {
                 method: "PATCH",
-                headers: { 
+                headers: {
                     "Content-Type": "application/json",
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 },
@@ -969,7 +969,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
             const res = await fetch("/api/rides", {
                 method: "PATCH",
-                headers: { 
+                headers: {
                     "Content-Type": "application/json",
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 },
@@ -999,13 +999,13 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
             await fetch("/api/driver/location", {
                 method: "POST",
-                headers: { 
+                headers: {
                     "Content-Type": "application/json",
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 },
                 body: JSON.stringify({ lat, lng, speed, heading, batteryLevel: 100, signalStrength: 95 })
             });
-        } catch {}
+        } catch { }
     }, []);
 
     // ─── Wallet Data Fetch ──────────────────────────────────────────────────
@@ -1021,7 +1021,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                 const data = await res.json();
                 setWalletData(data);
             }
-        } catch {}
+        } catch { }
         finally { setWalletLoading(false); }
     }, []);
 
@@ -1102,7 +1102,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     setShowWalletTab(true);
                     return;
                 }
-            } catch {}
+            } catch { }
         }
         if (newStatus) {
             try {
@@ -1110,9 +1110,9 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     navigator.geolocation.getCurrentPosition((pos) => {
                         setMyCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
                         broadcastLocation(pos.coords.latitude, pos.coords.longitude);
-                    }, () => {}, { enableHighAccuracy: true });
+                    }, () => { }, { enableHighAccuracy: true });
                 }
-            } catch {}
+            } catch { }
         } else {
             if (gpsIntervalRef.current) {
                 clearInterval(gpsIntervalRef.current);
@@ -1138,11 +1138,11 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 setMyCoords({ lat, lng });
                                 broadcastLocation(lat, lng, speed ? speed * 3.6 : 0, 0);
                             },
-                            () => {},
+                            () => { },
                             { enableHighAccuracy: true, timeout: 5000 }
                         );
                     }
-                } catch {}
+                } catch { }
             }, intervalMs);
         };
 
@@ -1200,11 +1200,10 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
 
                         <button
                             onClick={toggleStatus}
-                            className={`flex items-center gap-1.5 px-3 sm:px-5 py-1.5 sm:py-2 rounded-full font-black text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-sm ${
-                                isOnline 
-                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300' 
+                            className={`flex items-center gap-1.5 px-3 sm:px-5 py-1.5 sm:py-2 rounded-full font-black text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-sm ${isOnline
+                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
                                     : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                            }`}
+                                }`}
                         >
                             <Power size={12} className="shrink-0" />
                             <span className="hidden xs:inline">Go </span>{isOnline ? 'Offline' : 'Online'}
@@ -1215,13 +1214,12 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                             <button
                                 type="button"
                                 onClick={() => { setShowWalletTab(v => !v); if (!walletData) fetchWallet(); }}
-                                className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full font-black text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-sm active:scale-95 ${
-                                    showWalletTab
+                                className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full font-black text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-sm active:scale-95 ${showWalletTab
                                         ? 'bg-slate-900 text-white border border-slate-700'
                                         : walletInsufficientAlert
                                             ? 'bg-red-100 hover:bg-red-200 text-red-800 border border-red-300 animate-pulse'
                                             : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
-                                }`}
+                                    }`}
                                 title="My Wallet"
                             >
                                 <Wallet size={12} className="shrink-0" />
@@ -1404,11 +1402,10 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                             <p className="text-white font-black">{walletData?.wallet?.totalDeducted?.toFixed(2) ?? "0.00"} LRD</p>
                                         </div>
                                     </div>
-                                    <div className={`mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider w-fit ${
-                                        walletData?.eligible
+                                    <div className={`mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider w-fit ${walletData?.eligible
                                             ? "bg-white/20 text-emerald-100"
                                             : "bg-red-500/30 text-red-200 animate-pulse"
-                                    }`}>
+                                        }`}>
                                         {walletData?.eligible ? <CheckCircle2 size={10} /> : <AlertTriangle size={10} />}
                                         {walletData?.eligible ? "Eligible to Go Online" : "Insufficient Balance"}
                                     </div>
@@ -1426,9 +1423,8 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                     </p>
 
                                     {fundingResult && (
-                                        <div className={`mb-3 p-3 rounded-2xl text-[11px] font-semibold leading-relaxed ${
-                                            fundingResult.success ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-red-500/20 text-red-300 border border-red-500/30"
-                                        }`}>
+                                        <div className={`mb-3 p-3 rounded-2xl text-[11px] font-semibold leading-relaxed ${fundingResult.success ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-red-500/20 text-red-300 border border-red-500/30"
+                                            }`}>
                                             {fundingResult.success ? <CheckCircle2 size={12} className="inline mr-1" /> : <AlertTriangle size={12} className="inline mr-1" />}
                                             {fundingResult.message}
                                         </div>
@@ -1443,11 +1439,10 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                         key={p}
                                                         type="button"
                                                         onClick={() => setFundingProvider(p)}
-                                                        className={`py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
-                                                            fundingProvider === p
+                                                        className={`py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${fundingProvider === p
                                                                 ? p === "MTN" ? "bg-yellow-500 text-black" : "bg-orange-500 text-white"
                                                                 : "bg-slate-600 text-slate-300 hover:bg-slate-500"
-                                                        }`}
+                                                            }`}
                                                     >
                                                         {p === "MTN" ? "🟡 MTN" : "🟠 Orange"}
                                                     </button>
@@ -1500,9 +1495,8 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         ) : (
                                             (walletData?.wallet?.transactions ?? []).map((tx: any) => (
                                                 <div key={tx.id} className="flex items-start gap-2 p-3 bg-slate-800/60 rounded-2xl border border-slate-600/30">
-                                                    <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-                                                        tx.type === "CREDIT" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
-                                                    }`}>
+                                                    <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${tx.type === "CREDIT" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                                                        }`}>
                                                         {tx.type === "CREDIT" ? <ArrowDownLeft size={12} /> : <ArrowUpRight size={12} />}
                                                     </div>
                                                     <div className="min-w-0 flex-1">
@@ -1661,13 +1655,13 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                             color: "#2563eb",
                                         }]
                                         : activeRide?.originLat && activeRide?.originLng
-                                        ? [{
-                                            id: "to-pickup",
-                                            origin: [myCoords.lat, myCoords.lng] as [number, number],
-                                            destination: [activeRide.originLat, activeRide.originLng] as [number, number],
-                                            color: "#0f172a",
-                                        }]
-                                        : []
+                                            ? [{
+                                                id: "to-pickup",
+                                                origin: [myCoords.lat, myCoords.lng] as [number, number],
+                                                destination: [activeRide.originLat, activeRide.originLng] as [number, number],
+                                                color: "#0f172a",
+                                            }]
+                                            : []
                                 }
                             />
 
@@ -1721,7 +1715,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 </div>
 
                                 <div className="h-1.5 w-full bg-slate-100">
-                                    <div 
+                                    <div
                                         className="h-full bg-emerald-500 transition-all duration-1000 ease-linear"
                                         style={{ width: `${(incomingOffer.countdown / 45) * 100}%` }}
                                     />
@@ -1801,8 +1795,8 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                             <h3 className="text-lg font-black text-white">Cancel Assigned Ride</h3>
                                         </div>
                                     </div>
-                                    <button 
-                                        type="button" 
+                                    <button
+                                        type="button"
                                         onClick={() => setIsCancelModalOpen(false)}
                                         className="text-slate-400 hover:text-white p-2 rounded-xl transition-colors cursor-pointer"
                                     >
@@ -1992,7 +1986,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     {viewingReceiptRide && (
                         <div className="fixed inset-0 z-[200] bg-slate-900/70 backdrop-blur-sm overflow-y-auto flex" onClick={(e) => { if (e.target === e.currentTarget) setViewingReceiptRide(null); }}>
                             <div className="w-full max-w-xl mx-auto my-6 px-4">
-                                <RideReceipt 
+                                <RideReceipt
                                     ride={viewingReceiptRide}
                                     role="DRIVER"
                                     onClose={() => setViewingReceiptRide(null)}
@@ -2003,7 +1997,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
 
                     {/* Change Password Modal */}
                     {isPasswordModalOpen && (
-                        <div 
+                        <div
                             className="fixed inset-0 z-[220] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4"
                             onClick={(e) => {
                                 if (e.target === e.currentTarget && !currentUser?.forcePasswordChange) {
@@ -2182,11 +2176,10 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                     {/* Rotating Motivational Message */}
                                     <div className="h-6 sm:h-7 flex items-center justify-center md:justify-start overflow-hidden">
                                         <div
-                                            className={`flex items-center gap-2 text-xs sm:text-sm font-semibold text-emerald-700 transition-all duration-500 ease-in-out transform ${
-                                                msgFade === "in"
+                                            className={`flex items-center gap-2 text-xs sm:text-sm font-semibold text-emerald-700 transition-all duration-500 ease-in-out transform ${msgFade === "in"
                                                     ? "opacity-100 translate-y-0"
                                                     : "opacity-0 -translate-y-2 pointer-events-none"
-                                            }`}
+                                                }`}
                                             role="status"
                                             aria-live="polite"
                                         >
@@ -2276,23 +2269,22 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 <div className="bg-white border-2 border-slate-900 p-6 sm:p-8 rounded-3xl shadow-md space-y-6 relative overflow-hidden">
                                     <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                                         <div className="flex items-center gap-2">
-                                            <span className={`w-2.5 h-2.5 rounded-full ${
-                                                activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                            <span className={`w-2.5 h-2.5 rounded-full ${activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
                                                     ? "bg-amber-500 animate-ping"
                                                     : activeRide.status === "ACCEPTED"
-                                                    ? "bg-blue-500 animate-ping"
-                                                    : activeRide.status === "ARRIVED"
-                                                    ? "bg-emerald-500 animate-pulse"
-                                                    : "bg-emerald-500 animate-ping"
-                                            }`} />
+                                                        ? "bg-blue-500 animate-ping"
+                                                        : activeRide.status === "ARRIVED"
+                                                            ? "bg-emerald-500 animate-pulse"
+                                                            : "bg-emerald-500 animate-ping"
+                                                }`} />
                                             <h3 className="text-lg font-black text-slate-900">
                                                 {activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
                                                     ? "New Ride Alert · Action Required"
                                                     : activeRide.status === "ACCEPTED"
-                                                    ? "En Route to Pickup Location"
-                                                    : activeRide.status === "ARRIVED"
-                                                    ? "Arrived at Pickup · Waiting for Passenger"
-                                                    : "Active Ride in Progress"}
+                                                        ? "En Route to Pickup Location"
+                                                        : activeRide.status === "ARRIVED"
+                                                            ? "Arrived at Pickup · Waiting for Passenger"
+                                                            : "Active Ride in Progress"}
                                             </h3>
                                         </div>
                                         <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
@@ -2481,25 +2473,21 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 </div>
                             ) : approvalStatus !== "APPROVED" ? (
                                 // Approval-blocked state
-                                <div className={`p-10 rounded-3xl border-2 text-center flex flex-col items-center justify-center space-y-4 ${
-                                    approvalStatus === "PENDING"
+                                <div className={`p-10 rounded-3xl border-2 text-center flex flex-col items-center justify-center space-y-4 ${approvalStatus === "PENDING"
                                         ? "bg-amber-50 border-amber-200"
                                         : "bg-red-50 border-red-200"
-                                }`}>
-                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${
-                                        approvalStatus === "PENDING" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
                                     }`}>
+                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${approvalStatus === "PENDING" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                                        }`}>
                                         <ShieldAlert size={32} />
                                     </div>
                                     <div className="space-y-2 max-w-sm">
-                                        <h3 className={`text-lg font-black ${
-                                            approvalStatus === "PENDING" ? "text-amber-900" : "text-red-900"
-                                        }`}>
+                                        <h3 className={`text-lg font-black ${approvalStatus === "PENDING" ? "text-amber-900" : "text-red-900"
+                                            }`}>
                                             {approvalStatus === "PENDING" ? "Awaiting Admin Approval" : "Account Restricted"}
                                         </h3>
-                                        <p className={`text-xs leading-relaxed font-medium ${
-                                            approvalStatus === "PENDING" ? "text-amber-700" : "text-red-700"
-                                        }`}>
+                                        <p className={`text-xs leading-relaxed font-medium ${approvalStatus === "PENDING" ? "text-amber-700" : "text-red-700"
+                                            }`}>
                                             {approvalStatus === "PENDING"
                                                 ? "Your registration is currently under review. You will be notified and can start accepting rides once an administrator approves your account."
                                                 : `Your application was rejected${rejectionReason ? `: "${rejectionReason}"` : "."} Please contact AfriCab support for assistance.`
@@ -2546,11 +2534,10 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 <div className="flex flex-wrap gap-1.5 px-1">
                                                     <span className="text-[9px] font-black uppercase text-slate-400 w-full">Customer requests:</span>
                                                     {ride.acPreference && ride.acPreference !== "NO_PREFERENCE" && (
-                                                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
-                                                            ride.acPreference === "AC_ON"
+                                                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${ride.acPreference === "AC_ON"
                                                                 ? "bg-blue-50 text-blue-700 border-blue-200"
                                                                 : "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                                        }`}>
+                                                            }`}>
                                                             {ride.acPreference === "AC_ON" ? "❄️ AC On" : "🌬️ Windows Down"}
                                                         </span>
                                                     )}
@@ -2628,7 +2615,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 <div className="text-right shrink-0 flex items-center gap-3">
                                                     <div>
                                                         <p className="text-xs font-black text-slate-900">{formatDual(r.fare || 0)}</p>
-                                                        <p className="text-[10px] text-emerald-700 font-semibold">Net: ${( (r.fare || 0) * 0.85).toFixed(2)}</p>
+                                                        <p className="text-[10px] text-emerald-700 font-semibold">Net: ${((r.fare || 0) * 0.85).toFixed(2)}</p>
                                                     </div>
                                                     <button
                                                         type="button"

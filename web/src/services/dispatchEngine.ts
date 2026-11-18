@@ -328,14 +328,16 @@ export class DispatchEngine {
                 };
             }
 
-            // 3. Atomically assign ride: allows if status is REQUESTED and (driverId is null or already this driver)
+            // 3. Atomically assign ride: accepts REQUESTED (open pool) OR ASSIGNED (customer-selected this driver)
             const updateResult = await prisma.ride.updateMany({
                 where: {
                     id: rideId,
-                    status: "REQUESTED",
                     OR: [
-                        { driverId: null },
-                        { driverId: driverProfileId }
+                        // Open pool: any eligible driver can claim it
+                        { status: "REQUESTED", driverId: null },
+                        { status: "REQUESTED", driverId: driverProfileId },
+                        // Customer pre-selected this driver — only they may accept
+                        { status: "ASSIGNED", driverId: driverProfileId },
                     ]
                 },
                 data: {
@@ -351,7 +353,7 @@ export class DispatchEngine {
                     where: {
                         id: rideId,
                         driverId: driverProfileId,
-                        status: { in: ["ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] },
+                        status: { in: ["ASSIGNED", "ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] },
                     },
                     include: {
                         rider: { select: { id: true, name: true, phone: true, email: true } },
