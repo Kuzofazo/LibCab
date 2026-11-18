@@ -1074,12 +1074,14 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             } catch {}
         }
         if (newStatus) {
-            if ("geolocation" in navigator) {
-                navigator.geolocation.getCurrentPosition((pos) => {
-                    setMyCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-                    broadcastLocation(pos.coords.latitude, pos.coords.longitude);
-                }, () => {}, { enableHighAccuracy: true });
-            }
+            try {
+                if (typeof navigator !== "undefined" && navigator?.geolocation) {
+                    navigator.geolocation.getCurrentPosition((pos) => {
+                        setMyCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                        broadcastLocation(pos.coords.latitude, pos.coords.longitude);
+                    }, () => {}, { enableHighAccuracy: true });
+                }
+            } catch {}
         } else {
             if (gpsIntervalRef.current) {
                 clearInterval(gpsIntervalRef.current);
@@ -1091,34 +1093,42 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
 
     // GPS broadcast loop when online
     useEffect(() => {
-        if (!isOnline || typeof navigator === "undefined") return;
+        if (!isOnline || typeof navigator === "undefined" || !navigator.geolocation) return;
 
         const startBroadcast = () => {
             setGpsBroadcasting(true);
             const intervalMs = activeRide ? 4000 : 8000;
             gpsIntervalRef.current = setInterval(() => {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        const { latitude: lat, longitude: lng, speed } = pos.coords;
-                        setMyCoords({ lat, lng });
-                        broadcastLocation(lat, lng, speed ? speed * 3.6 : 0, 0);
-                    },
-                    () => {},
-                    { enableHighAccuracy: true, timeout: 5000 }
-                );
+                try {
+                    if (typeof navigator !== "undefined" && navigator?.geolocation) {
+                        navigator.geolocation.getCurrentPosition(
+                            (pos) => {
+                                const { latitude: lat, longitude: lng, speed } = pos.coords;
+                                setMyCoords({ lat, lng });
+                                broadcastLocation(lat, lng, speed ? speed * 3.6 : 0, 0);
+                            },
+                            () => {},
+                            { enableHighAccuracy: true, timeout: 5000 }
+                        );
+                    }
+                } catch {}
             }, intervalMs);
         };
 
         // Initial position grab
-        navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                setMyCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-                broadcastLocation(pos.coords.latitude, pos.coords.longitude);
-                startBroadcast();
-            },
-            () => startBroadcast(),
-            { enableHighAccuracy: true, timeout: 5000 }
-        );
+        try {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    setMyCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                    broadcastLocation(pos.coords.latitude, pos.coords.longitude);
+                    startBroadcast();
+                },
+                () => startBroadcast(),
+                { enableHighAccuracy: true, timeout: 5000 }
+            );
+        } catch {
+            startBroadcast();
+        }
 
         return () => {
             if (gpsIntervalRef.current) {
@@ -1187,7 +1197,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 <span className="hidden sm:inline">My Wallet</span>
                                 {walletData?.wallet && (
                                     <span className="hidden md:inline font-black text-emerald-600 ml-0.5">
-                                        {walletData.wallet.balance.toFixed(0)} LRD
+                                        {(Number(walletData.wallet.balance) || 0).toFixed(0)} LRD
                                     </span>
                                 )}
                             </button>

@@ -336,30 +336,65 @@ function MapboxEngine({
     );
 }
 
+// ─── Map Error Boundary: Graceful fallback to Leaflet / OSM ──────────────
+
+class MapErrorBoundary extends React.Component<
+    { fallback: React.ReactNode; children: React.ReactNode },
+    { hasError: boolean }
+> {
+    constructor(props: { fallback: React.ReactNode; children: React.ReactNode }) {
+        super(props);
+        this.state = { hasError: false };
+    }
+
+    static getDerivedStateFromError() {
+        return { hasError: true };
+    }
+
+    componentDidCatch(error: Error) {
+        console.warn("Map engine encountered an issue, gracefully rendering backup map:", error);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return this.props.fallback;
+        }
+        return this.props.children;
+    }
+}
+
 // ─── Main MapComponent — Engine Router ─────────────────────────────────────
 
 export default function MapComponent(props: MapProps) {
     const GOOGLE_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 
-    // Engine 1: Google Maps (best — uses real roads for Monrovia)
+    const fallbackLeaflet = (
+        <Suspense fallback={<div className="h-full w-full bg-slate-100 animate-pulse rounded-3xl" />}>
+            <LeafletMapEngine {...props} />
+        </Suspense>
+    );
+
+    // Engine 1: Google Maps with automatic resilient fallback
     if (GOOGLE_KEY) {
         return (
-            <Suspense fallback={<div className="h-full w-full bg-slate-100 animate-pulse rounded-3xl" />}>
-                <GoogleMapEngine {...props} />
-            </Suspense>
+            <MapErrorBoundary fallback={fallbackLeaflet}>
+                <Suspense fallback={<div className="h-full w-full bg-slate-100 animate-pulse rounded-3xl" />}>
+                    <GoogleMapEngine {...props} />
+                </Suspense>
+            </MapErrorBoundary>
         );
     }
 
     // Engine 2: Mapbox (great quality, generous free tier)
     if (MAPBOX_TOKEN) {
-        return <MapboxEngine {...props} />;
+        return (
+            <MapErrorBoundary fallback={fallbackLeaflet}>
+                <MapboxEngine {...props} />
+            </MapErrorBoundary>
+        );
     }
 
     // Engine 3: Leaflet / OpenStreetMap (free, no key, always works)
-    return (
-        <Suspense fallback={<div className="h-full w-full bg-slate-100 animate-pulse rounded-3xl" />}>
-            <LeafletMapEngine {...props} />
-        </Suspense>
-    );
+    return fallbackLeaflet;
 }
