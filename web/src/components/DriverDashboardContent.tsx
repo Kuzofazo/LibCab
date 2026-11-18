@@ -1646,21 +1646,21 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 <button
                                     type="button"
                                     onClick={() => openGoogleMapsNavigation(
-                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
-                                            ? activeRide?.originLat
-                                            : activeRide?.destLat,
-                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
-                                            ? activeRide?.originLng
-                                            : activeRide?.destLng,
-                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
-                                            ? activeRide?.originAddress
-                                            : activeRide?.destAddress
+                                        activeRide?.status === "IN_PROGRESS"
+                                            ? activeRide?.destLat
+                                            : activeRide?.originLat,
+                                        activeRide?.status === "IN_PROGRESS"
+                                            ? activeRide?.destLng
+                                            : activeRide?.originLng,
+                                        activeRide?.status === "IN_PROGRESS"
+                                            ? activeRide?.destAddress
+                                            : activeRide?.originAddress
                                     )}
                                     className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-black text-[11px] uppercase tracking-wider flex items-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
-                                    title="Open Google Maps for turn-by-turn navigation"
+                                    title={activeRide?.status === "IN_PROGRESS" ? "Open Google Maps navigation to destination" : "Open Google Maps navigation to pickup location"}
                                 >
                                     <Navigation size={12} className="text-emerald-400" />
-                                    <span>Get Directions</span>
+                                    <span>{activeRide?.status === "IN_PROGRESS" ? "Destination Directions" : "Pickup Directions"}</span>
                                 </button>
                             </div>
                         </div>
@@ -1675,16 +1675,18 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                     <div className="min-w-0">
                                         <span className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block">
                                             {activeRide
-                                                ? (activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
-                                                    ? "Navigation to Pickup"
-                                                    : "Navigation to Destination")
+                                                ? (activeRide.status === "IN_PROGRESS"
+                                                    ? "Navigation to Drop-off Destination"
+                                                    : activeRide.status === "ARRIVED"
+                                                        ? "At Pickup Location · Waiting for Boarding"
+                                                        : "Navigation to Customer Pickup")
                                                 : "Live Road Radar"}
                                         </span>
                                         <p className="text-xs font-bold truncate">
                                             {activeRide
-                                                ? (activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
-                                                    ? `toward ${activeRide.originAddress}`
-                                                    : `toward ${activeRide.destAddress}`)
+                                                ? (activeRide.status === "IN_PROGRESS"
+                                                    ? `toward ${activeRide.destAddress}`
+                                                    : `toward ${activeRide.originAddress}`)
                                                 : "Monrovia Road Network"}
                                         </p>
                                     </div>
@@ -1692,19 +1694,20 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 <button
                                     type="button"
                                     onClick={() => openGoogleMapsNavigation(
-                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
-                                            ? activeRide?.originLat
-                                            : activeRide?.destLat,
-                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
-                                            ? activeRide?.originLng
-                                            : activeRide?.destLng,
-                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
-                                            ? activeRide?.originAddress
-                                            : activeRide?.destAddress
+                                        activeRide?.status === "IN_PROGRESS"
+                                            ? activeRide?.destLat
+                                            : activeRide?.originLat,
+                                        activeRide?.status === "IN_PROGRESS"
+                                            ? activeRide?.destLng
+                                            : activeRide?.originLng,
+                                        activeRide?.status === "IN_PROGRESS"
+                                            ? activeRide?.destAddress
+                                            : activeRide?.originAddress
                                     )}
                                     className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow shrink-0 transition-transform active:scale-95 cursor-pointer"
                                 >
-                                    <span>Get Directions</span>
+                                    <Navigation size={13} className="fill-current" />
+                                    <span>{activeRide?.status === "IN_PROGRESS" ? "To Destination" : "To Pickup"}</span>
                                 </button>
                             </div>
 
@@ -1722,6 +1725,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         type: "ASSIGNED_DRIVER" as const,
                                         vehicleType: "Car",
                                     },
+                                    // Step 1 & 2: Show customer pickup location ONLY
                                     ...(activeRide?.originLat && activeRide?.originLng ? [{
                                         id: "customer-pickup",
                                         lat: activeRide.originLat,
@@ -1730,11 +1734,12 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         subtitle: activeRide.originAddress || "Pickup Location",
                                         type: "PICKUP" as const,
                                     }] : []),
-                                    ...(activeRide?.destLat && activeRide?.destLng ? [{
+                                    // Step 3 & 4: Drop-off destination revealed ONLY after driver starts the ride!
+                                    ...(activeRide?.status === "IN_PROGRESS" && activeRide?.destLat && activeRide?.destLng ? [{
                                         id: "customer-dest",
                                         lat: activeRide.destLat,
                                         lng: activeRide.destLng,
-                                        title: "Destination Dropoff",
+                                        title: "Customer Destination",
                                         subtitle: activeRide.destAddress || "Dropoff Destination",
                                         type: "DESTINATION" as const,
                                     }] : []),
@@ -1755,7 +1760,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                             destination: [activeRide.destLat, activeRide.destLng] as [number, number],
                                             color: "#2563eb",
                                         }]
-                                        : activeRide?.originLat && activeRide?.originLng
+                                        : activeRide && activeRide.status !== "IN_PROGRESS" && activeRide?.originLat && activeRide?.originLng
                                             ? [{
                                                 id: "to-pickup",
                                                 origin: [myCoords.lat, myCoords.lng] as [number, number],
@@ -1771,21 +1776,21 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 <button
                                     type="button"
                                     onClick={() => openGoogleMapsNavigation(
-                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
-                                            ? activeRide?.originLat
-                                            : activeRide?.destLat,
-                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
-                                            ? activeRide?.originLng
-                                            : activeRide?.destLng,
-                                        activeRide?.status === "ACCEPTED" || activeRide?.status === "PENDING" || activeRide?.status === "ASSIGNED"
-                                            ? activeRide?.originAddress
-                                            : activeRide?.destAddress
+                                        activeRide?.status === "IN_PROGRESS"
+                                            ? activeRide?.destLat
+                                            : activeRide?.originLat,
+                                        activeRide?.status === "IN_PROGRESS"
+                                            ? activeRide?.destLng
+                                            : activeRide?.originLng,
+                                        activeRide?.status === "IN_PROGRESS"
+                                            ? activeRide?.destAddress
+                                            : activeRide?.originAddress
                                     )}
                                     className="p-3 bg-white text-slate-900 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-2 hover:bg-slate-50 active:scale-95 transition-all cursor-pointer font-black text-xs"
-                                    title="Launch Google Maps Navigation"
+                                    title={activeRide?.status === "IN_PROGRESS" ? "Launch Google Maps Navigation to Destination" : "Launch Google Maps Navigation to Pickup"}
                                 >
-                                    <Navigation size={18} className="text-emerald-600" />
-                                    <span>Google Maps</span>
+                                    <Navigation size={18} className={activeRide?.status === "IN_PROGRESS" ? "text-blue-600" : "text-emerald-600"} />
+                                    <span>{activeRide?.status === "IN_PROGRESS" ? "To Destination" : "To Pickup"}</span>
                                 </button>
                             </div>
                         </div>
@@ -2071,12 +2076,14 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
                                     <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Target Location</p>
                                     <p className="text-xs font-bold text-slate-800">
-                                        {activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
-                                            ? activeRide.originAddress
-                                            : activeRide.destAddress}
+                                        {activeRide.status === "IN_PROGRESS"
+                                            ? activeRide.destAddress
+                                            : activeRide.originAddress}
                                     </p>
                                     <p className="text-[11px] text-slate-500">
-                                        Launch live voice-guided driving navigation in Google Maps for the best traffic and turn-by-turn guidance.
+                                        {activeRide.status === "IN_PROGRESS"
+                                            ? "Launch live turn-by-turn driving navigation to the customer's destination in Google Maps."
+                                            : "Launch live voice-guided driving navigation to the customer's pickup location in Google Maps."}
                                     </p>
                                 </div>
 
@@ -2093,15 +2100,15 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         onClick={() => {
                                             setShowDirectionsPrompt(false);
                                             openGoogleMapsNavigation(
-                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
-                                                    ? activeRide.originLat
-                                                    : activeRide.destLat,
-                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
-                                                    ? activeRide.originLng
-                                                    : activeRide.destLng,
-                                                activeRide.status === "ACCEPTED" || activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
-                                                    ? activeRide.originAddress
-                                                    : activeRide.destAddress
+                                                activeRide.status === "IN_PROGRESS"
+                                                    ? activeRide.destLat
+                                                    : activeRide.originLat,
+                                                activeRide.status === "IN_PROGRESS"
+                                                    ? activeRide.destLng
+                                                    : activeRide.originLng,
+                                                activeRide.status === "IN_PROGRESS"
+                                                    ? activeRide.destAddress
+                                                    : activeRide.originAddress
                                             );
                                         }}
                                         className="flex-[2] py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
@@ -2477,68 +2484,76 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 <span className="text-[9px] font-semibold text-emerald-600">Assigned</span>
                                             </div>
 
-                                            {/* Step 2: Accept Ride */}
+                                            {/* Step 2: Pickup Navigation */}
                                             <div className="flex flex-col items-center">
                                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-sm transition-all ${activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
                                                         ? "bg-amber-500 text-white ring-4 ring-amber-100 animate-pulse"
-                                                        : "bg-emerald-600 text-white"
+                                                        : activeRide.status === "ACCEPTED"
+                                                            ? "bg-blue-600 text-white ring-4 ring-blue-100 animate-pulse"
+                                                            : "bg-emerald-600 text-white"
                                                     }`}>
-                                                    {activeRide.status === "PENDING" || activeRide.status === "ASSIGNED" ? "2" : <CheckCircle2 size={16} />}
+                                                    {activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                        ? "2"
+                                                        : activeRide.status === "ACCEPTED"
+                                                            ? <Navigation size={15} />
+                                                            : <CheckCircle2 size={16} />}
                                                 </div>
-                                                <span className="text-[10px] font-black uppercase text-slate-900 mt-1.5">2. Accept Ride</span>
+                                                <span className="text-[10px] font-black uppercase text-slate-900 mt-1.5">2. Pickup Route</span>
                                                 <span className={`text-[9px] font-semibold ${activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
                                                         ? "text-amber-600 animate-pulse font-bold"
-                                                        : "text-emerald-600"
+                                                        : activeRide.status === "ACCEPTED"
+                                                            ? "text-blue-600 font-bold animate-pulse"
+                                                            : "text-emerald-600"
                                                     }`}>
-                                                    {activeRide.status === "PENDING" || activeRide.status === "ASSIGNED" ? "Tap Accept" : "Accepted"}
+                                                    {activeRide.status === "PENDING" || activeRide.status === "ASSIGNED"
+                                                        ? "Tap Accept"
+                                                        : activeRide.status === "ACCEPTED"
+                                                            ? "En Route"
+                                                            : "Reached"}
                                                 </span>
                                             </div>
 
-                                            {/* Step 3: Start Ride */}
+                                            {/* Step 3: Confirm Arrival & Start */}
                                             <div className="flex flex-col items-center">
                                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-sm transition-all ${activeRide.status === "IN_PROGRESS"
                                                         ? "bg-emerald-600 text-white"
                                                         : activeRide.status === "ARRIVED"
                                                             ? "bg-emerald-500 text-white ring-4 ring-emerald-100 animate-bounce"
-                                                            : activeRide.status === "ACCEPTED"
-                                                                ? "bg-blue-600 text-white ring-4 ring-blue-100"
-                                                                : "bg-slate-200 text-slate-500"
+                                                            : "bg-slate-200 text-slate-500"
                                                     }`}>
-                                                    {activeRide.status === "IN_PROGRESS" ? <CheckCircle2 size={16} /> : <Car size={15} />}
+                                                    {activeRide.status === "IN_PROGRESS" ? <CheckCircle2 size={16} /> : <MapPin size={15} />}
                                                 </div>
-                                                <span className="text-[10px] font-black uppercase text-slate-900 mt-1.5">3. Start Trip</span>
+                                                <span className="text-[10px] font-black uppercase text-slate-900 mt-1.5">3. Arrival</span>
                                                 <span className={`text-[9px] font-semibold ${activeRide.status === "IN_PROGRESS"
                                                         ? "text-emerald-600"
                                                         : activeRide.status === "ARRIVED"
                                                             ? "text-emerald-600 font-bold animate-pulse"
-                                                            : activeRide.status === "ACCEPTED"
-                                                                ? "text-blue-600 font-bold"
-                                                                : "text-slate-400"
+                                                            : "text-slate-400"
                                                     }`}>
                                                     {activeRide.status === "IN_PROGRESS"
                                                         ? "Started"
                                                         : activeRide.status === "ARRIVED"
                                                             ? "Tap Start"
                                                             : activeRide.status === "ACCEPTED"
-                                                                ? "En Route"
+                                                                ? "Drive to Pickup"
                                                                 : "Waiting"}
                                                 </span>
                                             </div>
 
-                                            {/* Step 4: Directions & Destination Navigation */}
+                                            {/* Step 4: Drop-off Destination Navigation */}
                                             <div className="flex flex-col items-center">
                                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-sm transition-all ${activeRide.status === "IN_PROGRESS"
                                                         ? "bg-blue-600 text-white ring-4 ring-blue-100 animate-pulse"
                                                         : "bg-slate-200 text-slate-500"
                                                     }`}>
-                                                    <Navigation size={15} />
+                                                    {activeRide.status === "IN_PROGRESS" ? <Navigation size={15} /> : <Lock size={14} />}
                                                 </div>
-                                                <span className="text-[10px] font-black uppercase text-slate-900 mt-1.5">4. Navigation</span>
+                                                <span className="text-[10px] font-black uppercase text-slate-900 mt-1.5">4. Drop-off Route</span>
                                                 <span className={`text-[9px] font-semibold ${activeRide.status === "IN_PROGRESS"
                                                         ? "text-blue-600 font-bold animate-pulse"
                                                         : "text-slate-400"
                                                     }`}>
-                                                    {activeRide.status === "IN_PROGRESS" ? "Live to Dest" : "To Dest"}
+                                                    {activeRide.status === "IN_PROGRESS" ? "Live to Dest" : "Revealed on Start"}
                                                 </span>
                                             </div>
                                         </div>
@@ -2554,7 +2569,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 <div className="min-w-0">
                                                     <p className="text-xs font-black uppercase tracking-wider text-amber-900">Step 1 · New Ride Alert</p>
                                                     <p className="text-xs text-amber-800 font-medium mt-0.5 truncate">
-                                                        A customer request has been assigned to you. Click <strong>Accept Ride</strong> below to confirm.
+                                                        A customer request has been assigned to you. Click <strong>Accept Ride</strong> below to begin navigation to pickup.
                                                     </p>
                                                 </div>
                                             </div>
@@ -2579,7 +2594,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 <div className="min-w-0">
                                                     <p className="text-xs font-black uppercase tracking-wider text-blue-900">Step 2 · Drive to Pickup Location</p>
                                                     <p className="text-xs text-blue-800 font-medium mt-0.5 truncate">
-                                                        Pickup: <strong>{activeRide.originAddress}</strong>. Tap <strong>Arrived</strong> when you reach the customer.
+                                                        Pickup: <strong>{activeRide.originAddress}</strong>. Once you arrive at the passenger&apos;s location, tap <strong>Arrived at Pickup</strong>.
                                                     </p>
                                                 </div>
                                             </div>
@@ -2588,7 +2603,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 onClick={() => openGoogleMapsNavigation(activeRide.originLat, activeRide.originLng, activeRide.originAddress)}
                                                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm flex items-center gap-1.5 shrink-0 active:scale-95 cursor-pointer"
                                             >
-                                                <Navigation size={14} /> Navigate to Pickup
+                                                <Navigation size={14} /> Directions to Pickup
                                             </button>
                                         </div>
                                     )}
@@ -2600,9 +2615,9 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                     <MapPin size={20} className="text-white" />
                                                 </div>
                                                 <div className="min-w-0">
-                                                    <p className="text-xs font-black uppercase tracking-wider text-emerald-900">Step 3 · Arrived at Pickup · Passenger Boarding</p>
+                                                    <p className="text-xs font-black uppercase tracking-wider text-emerald-900">Step 3 · Arrived at Pickup · Confirm Arrival &amp; Start Ride</p>
                                                     <p className="text-xs text-emerald-800 font-medium mt-0.5 truncate">
-                                                        You are at the pickup point! Once passenger is safely aboard, tap <strong>Start Ride</strong> to activate trip &amp; destination directions.
+                                                        You have arrived at the pickup location. Once passenger is aboard, tap <strong>Start Ride</strong> to reveal the destination and activate navigation.
                                                     </p>
                                                 </div>
                                             </div>
@@ -2613,7 +2628,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 shrink-0 active:scale-95 cursor-pointer disabled:opacity-50 animate-pulse"
                                             >
                                                 {statusUpdating ? <Loader2 size={16} className="animate-spin" /> : <Car size={16} />}
-                                                Start Ride
+                                                Start Ride (Reveal Destination)
                                             </button>
                                         </div>
                                     )}
@@ -2634,7 +2649,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                         {activeRide.destAddress}
                                                     </p>
                                                     <p className="text-[11px] text-blue-200 mt-0.5 font-medium">
-                                                        {activeRide.distanceKm ? `${activeRide.distanceKm.toFixed(1)} km · ` : ""}Directions active on integrated map &amp; Google Maps
+                                                        {activeRide.distanceKm ? `${activeRide.distanceKm.toFixed(1)} km · ` : ""}Drop-off location revealed &amp; turn-by-turn navigation active
                                                     </p>
                                                 </div>
                                             </div>
@@ -2698,21 +2713,30 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         </div>
                                     )}
 
-                                    {/* Route Details: Pickup & Dropoff */}
+                                    {/* Route Details: Sequential Pickup & Drop-off */}
                                     <div className="space-y-3 bg-slate-50 p-5 rounded-2xl border border-slate-200">
                                         <div className="flex items-start gap-3">
                                             <MapPin className="text-emerald-600 mt-0.5 shrink-0" size={16} />
                                             <div className="min-w-0">
-                                                <p className="text-[10px] font-black text-slate-400 uppercase">Pickup Location</p>
+                                                <p className="text-[10px] font-black text-slate-400 uppercase">1. Customer Pickup Location</p>
                                                 <p className="font-bold text-sm text-slate-900 break-words">{activeRide.originAddress}</p>
                                             </div>
                                         </div>
                                         <div className="ml-2 border-l-2 border-dashed border-slate-300 h-3" />
                                         <div className="flex items-start gap-3">
-                                            <MapPin className="text-red-600 mt-0.5 shrink-0" size={16} />
+                                            <MapPin className={`${activeRide.status === "IN_PROGRESS" ? "text-red-600" : "text-slate-400"} mt-0.5 shrink-0`} size={16} />
                                             <div className="min-w-0">
-                                                <p className="text-[10px] font-black text-slate-400 uppercase">Customer Destination</p>
-                                                <p className="font-bold text-sm text-slate-900 break-words">{activeRide.destAddress}</p>
+                                                <p className="text-[10px] font-black text-slate-400 uppercase">2. Drop-off Destination</p>
+                                                {activeRide.status === "IN_PROGRESS" ? (
+                                                    <p className="font-bold text-sm text-slate-900 break-words">{activeRide.destAddress}</p>
+                                                ) : (
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-slate-200/80 px-2.5 py-1 rounded-lg">
+                                                            <Lock size={12} className="text-slate-500" />
+                                                            Destination revealed upon clicking &quot;Start Ride&quot;
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -2749,7 +2773,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                 </button>
                                             )}
 
-                                            {/* Stage 2: En Route to Pickup (Accepted -> Get Directions & Arrive) */}
+                                            {/* Stage 2: En Route to Pickup (Accepted -> Directions to Pickup & Confirm Arrival) */}
                                             {activeRide.status === "ACCEPTED" && (
                                                 <>
                                                     <button
@@ -2768,27 +2792,18 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                         {statusUpdating ? <Loader2 size={15} className="animate-spin" /> : <MapPin size={15} className="text-emerald-400" />}
                                                         Arrived at Pickup
                                                     </button>
-                                                    <button
-                                                        type="button"
-                                                        disabled={statusUpdating}
-                                                        onClick={() => handleUpdateStatus("IN_PROGRESS")}
-                                                        className="px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-                                                        title="Directly start ride if passenger is already aboard"
-                                                    >
-                                                        <Car size={15} /> Start Ride
-                                                    </button>
                                                 </>
                                             )}
 
-                                            {/* Stage 3: Arrived at Pickup (Start Ride officially activates trip & navigation) */}
+                                            {/* Stage 3: Arrived at Pickup (Start Ride confirms arrival, reveals drop-off destination & activates destination navigation) */}
                                             {activeRide.status === "ARRIVED" && (
                                                 <>
                                                     <button
                                                         type="button"
-                                                        onClick={() => openGoogleMapsNavigation(activeRide.destLat, activeRide.destLng, activeRide.destAddress)}
-                                                        className="px-4 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                                                        onClick={() => openGoogleMapsNavigation(activeRide.originLat, activeRide.originLng, activeRide.originAddress)}
+                                                        className="px-4 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-black text-xs uppercase tracking-wider shadow-sm flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border border-slate-200"
                                                     >
-                                                        <Navigation size={15} /> Destination Route
+                                                        <MapPin size={15} /> Pickup Location
                                                     </button>
                                                     <button
                                                         type="button"
@@ -2797,12 +2812,12 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                         className="px-7 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer animate-pulse"
                                                     >
                                                         {statusUpdating ? <Loader2 size={16} className="animate-spin" /> : <Car size={16} />}
-                                                        Start Ride (Activate Trip)
+                                                        Start Ride (Reveal Drop-off)
                                                     </button>
                                                 </>
                                             )}
 
-                                            {/* Stage 4: In Progress (Active trip -> Directions & Complete Ride) */}
+                                            {/* Stage 4: In Progress (Active trip -> Destination Navigation & Complete Ride) */}
                                             {activeRide.status === "IN_PROGRESS" && (
                                                 <>
                                                     <button
