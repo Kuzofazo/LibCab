@@ -28,7 +28,9 @@ import {
     MessageCircle,
     Zap,
     Clock,
-    Shield
+    Shield,
+    LocateFixed,
+    AlertCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDual } from "@/utils/currency";
@@ -111,7 +113,7 @@ function GuestBookingContent() {
     const [phone, setPhone] = useState("");
     const [session, setSession] = useState<string | null>(null);
     const [trip, setTrip] = useState({
-        pickup: searchParams.get("pickup") || searchParams.get("origin") || "Old Road, Sinkor",
+        pickup: searchParams.get("pickup") || searchParams.get("origin") || "Current Location (Detecting GPS...)",
         destination: searchParams.get("destination") || "Redlight, Paynesville",
         payment: searchParams.get("payment") || "MOMO",
         name: searchParams.get("name") || "",
@@ -120,6 +122,12 @@ function GuestBookingContent() {
     });
     const [attemptedStep3Submit, setAttemptedStep3Submit] = useState(false);
     const isStep3Complete = trip.pickup.trim() !== "" && trip.destination.trim() !== "" && trip.category !== "";
+
+    // Geolocation & Permission State
+    const [locationStatus, setLocationStatus] = useState<"idle" | "detecting" | "granted" | "denied" | "unavailable" | "timeout">("idle");
+    const [locationLoading, setLocationLoading] = useState(false);
+    const [locationErrorMessage, setLocationErrorMessage] = useState<string | null>(null);
+    const [customerPickupGps, setCustomerPickupGps] = useState<{ lat: number; lng: number } | null>(null);
 
     // Nearby Driver State
     const [nearbyDrivers, setNearbyDrivers] = useState<NearbyDriverResult[]>([]);
@@ -155,21 +163,83 @@ function GuestBookingContent() {
     const currentTier = (trip.category || "Regular") as "Regular" | "Comfort" | "VIP";
     const fareEstimate = basePrices[currentType]?.[currentTier] || 4.75;
 
-    // 1. Geolocation
-    useEffect(() => {
-        if (typeof window !== "undefined" && "geolocation" in navigator) {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    setUserCoordinates({
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude
-                    });
-                },
-                () => {},
-                { enableHighAccuracy: true, timeout: 5000 }
-            );
+    // 1. High-Accuracy Customer GPS Acquisition & Permission Handling
+    const requestCurrentLocation = useCallback((isAuto = false) => {
+        if (typeof window === "undefined" || !("geolocation" in navigator)) {
+            setLocationStatus("unavailable");
+            setLocationErrorMessage("Geolocation is not supported by your device or browser.");
+            return;
         }
+
+        setLocationLoading(true);
+        setLocationErrorMessage(null);
+        if (!isAuto) setLocationStatus("detecting");
+
+        const handleSuccess = (pos: GeolocationPosition) => {
+            const coords = {
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude
+            };
+            setUserCoordinates(coords);
+            setCustomerPickupGps(coords);
+            setLocationStatus("granted");
+            setLocationLoading(false);
+            setLocationErrorMessage(null);
+
+            setTrip((prev) => {
+                const isDefaultOrPlaceholder = !prev.pickup || 
+                    prev.pickup === "Old Road, Sinkor" || 
+                    prev.pickup.includes("Detecting") ||
+                    isAuto;
+                if (isDefaultOrPlaceholder) {
+                    return { ...prev, pickup: "Current Location (GPS Locked)" };
+                }
+                return prev;
+            });
+        };
+
+        const finalizeLocationError = (err: GeolocationPositionError) => {
+            if (err.code === err.PERMISSION_DENIED) {
+                setLocationStatus("denied");
+                setLocationErrorMessage("Location permission blocked. Please allow location access or type your pickup address.");
+            } else if (err.code === err.POSITION_UNAVAILABLE) {
+                setLocationStatus("unavailable");
+                setLocationErrorMessage("GPS signal unavailable. Ensure location services are enabled on your device.");
+            } else if (err.code === err.TIMEOUT) {
+                setLocationStatus("timeout");
+                setLocationErrorMessage("GPS request timed out. Enter pickup address or tap Locate Me.");
+            } else {
+                setLocationStatus("unavailable");
+                setLocationErrorMessage("Could not detect GPS location.");
+            }
+        };
+
+        const handleError = (err: GeolocationPositionError) => {
+            if (err.code === err.TIMEOUT && isAuto) {
+                navigator.geolocation.getCurrentPosition(
+                    handleSuccess,
+                    (secondErr) => {
+                        setLocationLoading(false);
+                        finalizeLocationError(secondErr);
+                    },
+                    { enableHighAccuracy: false, timeout: 8000 }
+                );
+                return;
+            }
+            setLocationLoading(false);
+            finalizeLocationError(err);
+        };
+
+        navigator.geolocation.getCurrentPosition(
+            handleSuccess,
+            handleError,
+            { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+        );
     }, []);
+
+    useEffect(() => {
+        requestCurrentLocation(true);
+    }, [requestCurrentLocation]);
 
     // 1b. On mount: restore an active guest ride from localStorage so refresh keeps tracking screen
     useEffect(() => {
@@ -352,6 +422,21 @@ function GuestBookingContent() {
 
         setLoading(true);
         try {
+            let originLat = userCoordinates.lat;
+            let originLng = userCoordinates.lng;
+
+            if (customerPickupGps) {
+                originLat = customerPickupGps.lat;
+                originLng = customerPickupGps.lng;
+            } else if (
+                trip.pickup.toLowerCase().includes("current") ||
+                trip.pickup.toLowerCase().includes("location") ||
+                trip.pickup.toLowerCase().includes("gps")
+            ) {
+                originLat = userCoordinates.lat;
+                originLng = userCoordinates.lng;
+            }
+
             const res = await fetch("/api/rides/guest", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -366,8 +451,8 @@ function GuestBookingContent() {
                     guestName: trip.name || "Guest Customer",
                     driverId: selectedDriver ? selectedDriver.id : undefined,
                     fare: fareEstimate,
-                    originLat: userCoordinates.lat,
-                    originLng: userCoordinates.lng
+                    originLat: Number(originLat),
+                    originLng: Number(originLng)
                 })
             });
 
@@ -627,17 +712,54 @@ function GuestBookingContent() {
                                     </div>
                                 )}
 
+                                {/* Location Permission / GPS Error Banner */}
+                                {locationErrorMessage && (
+                                    <div className="flex items-center justify-between gap-2 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl text-xs font-semibold animate-fadeIn">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <AlertCircle size={15} className="text-amber-600 shrink-0" />
+                                            <span className="truncate">{locationErrorMessage}</span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => requestCurrentLocation(false)}
+                                            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[10px] uppercase shrink-0 transition-all cursor-pointer"
+                                        >
+                                            Retry GPS
+                                        </button>
+                                    </div>
+                                )}
+
                                 <form onSubmit={handleRequestRide} className="space-y-5">
                                     {/* Pickup Location */}
                                     <div className="space-y-1.5">
-                                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                                            <MapPin size={13} className="text-emerald-600" /> Pickup Location
-                                        </label>
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                                                <MapPin size={13} className={customerPickupGps ? "text-emerald-600" : "text-slate-600"} /> Pickup Location
+                                            </label>
+                                            <button
+                                                type="button"
+                                                onClick={() => requestCurrentLocation(false)}
+                                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-xs flex items-center gap-1 transition-all cursor-pointer ${
+                                                    customerPickupGps 
+                                                        ? "bg-emerald-50 text-emerald-700 border-emerald-300" 
+                                                        : "bg-white text-slate-700 hover:text-slate-900 border-slate-200"
+                                                }`}
+                                                title="Detect current device GPS location"
+                                            >
+                                                <LocateFixed size={11} className={locationLoading ? "animate-spin text-amber-500" : customerPickupGps ? "text-emerald-600" : "text-slate-500"} />
+                                                <span>{customerPickupGps ? "GPS Set" : "Locate Me"}</span>
+                                            </button>
+                                        </div>
                                         <input
                                             type="text"
-                                            placeholder="e.g. Lonestar Cell MTN, Broad Street"
+                                            placeholder="Enter pickup location or tap Locate Me"
                                             value={trip.pickup}
-                                            onChange={(e) => setTrip({ ...trip, pickup: e.target.value })}
+                                            onChange={(e) => {
+                                                setTrip({ ...trip, pickup: e.target.value });
+                                                if (!e.target.value.toLowerCase().includes("current") && !e.target.value.toLowerCase().includes("location")) {
+                                                    setCustomerPickupGps(null);
+                                                }
+                                            }}
                                             className={cn(
                                                 "w-full bg-slate-50 border rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-900 outline-none transition-all placeholder:text-slate-400",
                                                 attemptedStep3Submit && !trip.pickup.trim() ? "border-red-500 bg-red-50" : "border-slate-200 focus:border-slate-900"

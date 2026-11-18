@@ -33,7 +33,11 @@ import {
     ArrowUpDown,
     CheckCircle2,
     Share,
-    Square
+    Square,
+    LocateFixed,
+    AlertCircle,
+    Loader2,
+    Car
 } from "lucide-react";
 import { formatDual } from "@/utils/currency";
 import dynamic from 'next/dynamic';
@@ -107,11 +111,16 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     const [shareLocation, setShareLocation] = useState(true);
     
     const [bookingData, setBookingData] = useState({
-        pickup: "2578 Bergen Blvd, Sinkor",
+        pickup: "Current Location (Detecting GPS...)",
         destination: "1417 West End Ave, Monrovia",
         paymentMethod: "MOMO",
         paymentPhone: user?.phone || "+231 88 123 4567"
     });
+
+    const [locationStatus, setLocationStatus] = useState<"idle" | "detecting" | "granted" | "denied" | "unavailable" | "timeout">("idle");
+    const [locationLoading, setLocationLoading] = useState(false);
+    const [locationErrorMessage, setLocationErrorMessage] = useState<string | null>(null);
+    const [customerPickupGps, setCustomerPickupGps] = useState<{ lat: number; lng: number } | null>(null);
 
     const [fareEstimate, setFareEstimate] = useState(27.00);
     const [routeData, setRouteData] = useState<{distance: string, eta: string} | null>({
@@ -187,21 +196,84 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     useEffect(() => { activeRideIdRef.current = activeRide?.id; }, [activeRide?.id]);
     useEffect(() => { userIdRef.current = user?.id; }, [user?.id]);
 
-    // 1. Geolocation on Mount
-    useEffect(() => {
-        if (typeof window !== "undefined" && "geolocation" in navigator) {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    setUserCoordinates({
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude
-                    });
-                },
-                () => {},
-                { enableHighAccuracy: true, timeout: 5000 }
-            );
+    // 1. High-Accuracy Customer GPS Acquisition & Permission Handling
+    const requestCurrentLocation = useCallback((isAuto = false) => {
+        if (typeof window === "undefined" || !("geolocation" in navigator)) {
+            setLocationStatus("unavailable");
+            setLocationErrorMessage("Geolocation is not supported by your device or browser.");
+            return;
         }
+
+        setLocationLoading(true);
+        setLocationErrorMessage(null);
+        if (!isAuto) setLocationStatus("detecting");
+
+        const handleSuccess = (pos: GeolocationPosition) => {
+            const coords = {
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude
+            };
+            setUserCoordinates(coords);
+            setCustomerPickupGps(coords);
+            setLocationStatus("granted");
+            setLocationLoading(false);
+            setLocationErrorMessage(null);
+
+            setBookingData((prev) => {
+                const isDefaultOrPlaceholder = !prev.pickup || 
+                    prev.pickup === "2578 Bergen Blvd, Sinkor" || 
+                    prev.pickup.includes("Detecting") ||
+                    isAuto;
+                if (isDefaultOrPlaceholder) {
+                    return { ...prev, pickup: "Current Location (GPS Locked)" };
+                }
+                return prev;
+            });
+        };
+
+        const finalizeLocationError = (err: GeolocationPositionError) => {
+            if (err.code === err.PERMISSION_DENIED) {
+                setLocationStatus("denied");
+                setLocationErrorMessage("Location permission blocked. Please allow location access in your browser or type your pickup address.");
+            } else if (err.code === err.POSITION_UNAVAILABLE) {
+                setLocationStatus("unavailable");
+                setLocationErrorMessage("GPS signal unavailable. Please ensure location services are enabled on your device.");
+            } else if (err.code === err.TIMEOUT) {
+                setLocationStatus("timeout");
+                setLocationErrorMessage("GPS request timed out. Please enter your pickup address manually or tap Locate Me.");
+            } else {
+                setLocationStatus("unavailable");
+                setLocationErrorMessage("Could not detect GPS location.");
+            }
+        };
+
+        const handleError = (err: GeolocationPositionError) => {
+            // Fallback attempt: if high-accuracy timed out, try standard accuracy
+            if (err.code === err.TIMEOUT && isAuto) {
+                navigator.geolocation.getCurrentPosition(
+                    handleSuccess,
+                    (secondErr) => {
+                        setLocationLoading(false);
+                        finalizeLocationError(secondErr);
+                    },
+                    { enableHighAccuracy: false, timeout: 8000 }
+                );
+                return;
+            }
+            setLocationLoading(false);
+            finalizeLocationError(err);
+        };
+
+        navigator.geolocation.getCurrentPosition(
+            handleSuccess,
+            handleError,
+            { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+        );
     }, []);
+
+    useEffect(() => {
+        requestCurrentLocation(true);
+    }, [requestCurrentLocation]);
 
     // 2. Fetch Nearby Drivers
     const fetchNearbyDrivers = useCallback(async (lat: number, lng: number, radius: number) => {
@@ -562,7 +634,31 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         setBookingLoading(true);
         
         try {
-            const pickupCoords = await geocodeAddress(bookingData.pickup) || { lat: 6.3156, lng: -10.8074 };
+            // Determine accurate customer pickup GPS coordinates
+            let originLat = userCoordinates.lat;
+            let originLng = userCoordinates.lng;
+
+            if (customerPickupGps) {
+                originLat = customerPickupGps.lat;
+                originLng = customerPickupGps.lng;
+            } else if (
+                bookingData.pickup.toLowerCase().includes("current") ||
+                bookingData.pickup.toLowerCase().includes("location") ||
+                bookingData.pickup.toLowerCase().includes("gps")
+            ) {
+                originLat = userCoordinates.lat;
+                originLng = userCoordinates.lng;
+            } else {
+                const geocoded = await geocodeAddress(bookingData.pickup);
+                if (geocoded && geocoded.lat && geocoded.lng) {
+                    originLat = geocoded.lat;
+                    originLng = geocoded.lng;
+                } else {
+                    originLat = userCoordinates.lat;
+                    originLng = userCoordinates.lng;
+                }
+            }
+
             const destCoords = await geocodeAddress(bookingData.destination) || { lat: 6.3000, lng: -10.7900 };
 
             const baseSelectedFare = (tierPrices[selectedTier] || 27.00) + (intermediateStops.length * 3.00);
@@ -579,10 +675,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                     riderId: user?.id,
                     originAddress: bookingData.pickup,
                     destAddress: bookingData.destination,
-                    originLat: pickupCoords.lat,
-                    originLng: pickupCoords.lng,
-                    destLat: destCoords.lat,
-                    destLng: destCoords.lng,
+                    originLat: Number(originLat),
+                    originLng: Number(originLng),
+                    destLat: Number(destCoords.lat),
+                    destLng: Number(destCoords.lng),
                     vehicleType: "Car",
                     rideCategory: selectedTier,
                     paymentMethod: bookingData.paymentMethod,
@@ -618,10 +714,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                         body: JSON.stringify({
                             pickup: bookingData.pickup,
                             destination: bookingData.destination,
-                            originLat: pickupCoords.lat,
-                            originLng: pickupCoords.lng,
-                            destLat: destCoords.lat,
-                            destLng: destCoords.lng,
+                            originLat: Number(originLat),
+                            originLng: Number(originLng),
+                            destLat: Number(destCoords.lat),
+                            destLng: Number(destCoords.lng),
                             vehicleType: "Car",
                             rideCategory: selectedTier,
                             payment: bookingData.paymentMethod,
@@ -722,8 +818,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         }
         mapMarkers.push({
             id: "pickup",
-            lat: activeRide.originLat || 6.3156,
-            lng: activeRide.originLng || -10.8074,
+            lat: Number(activeRide.originLat) || Number(userCoordinates.lat) || 6.3156,
+            lng: Number(activeRide.originLng) || Number(userCoordinates.lng) || -10.8074,
             title: "Pick up",
             subtitle: activeRide.originAddress,
             type: "PICKUP",
@@ -731,8 +827,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         });
         mapMarkers.push({
             id: "dest",
-            lat: activeRide.destLat || 6.3000,
-            lng: activeRide.destLng || -10.7900,
+            lat: Number(activeRide.destLat) || 6.3000,
+            lng: Number(activeRide.destLng) || -10.7900,
             title: "Destination",
             subtitle: activeRide.destAddress,
             type: "DESTINATION",
@@ -742,8 +838,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
         mapMarkers.push({
             id: "my_location",
-            lat: userCoordinates.lat,
-            lng: userCoordinates.lng,
+            lat: customerPickupGps ? customerPickupGps.lat : userCoordinates.lat,
+            lng: customerPickupGps ? customerPickupGps.lng : userCoordinates.lng,
             title: "Your Location",
             subtitle: bookingData.pickup,
             type: "PICKUP",
@@ -782,7 +878,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             mapRoutes.push({
                 id: "driver-to-pickup-route",
                 origin: [activeRide.driver.currentLat, activeRide.driver.currentLng] as [number, number],
-                destination: [activeRide.originLat || 6.3156, activeRide.originLng || -10.8074] as [number, number],
+                destination: [Number(activeRide.originLat) || userCoordinates.lat, Number(activeRide.originLng) || userCoordinates.lng] as [number, number],
                 color: "#059669",
             });
         }
@@ -790,14 +886,14 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             mapRoutes.push({
                 id: "driver-to-dest-route",
                 origin: [activeRide.driver.currentLat, activeRide.driver.currentLng] as [number, number],
-                destination: [activeRide.destLat || 6.3000, activeRide.destLng || -10.7900] as [number, number],
+                destination: [Number(activeRide.destLat) || 6.3000, Number(activeRide.destLng) || -10.7900] as [number, number],
                 color: "#2563eb",
             });
         }
         mapRoutes.push({
             id: "active-trip-route",
-            origin: [activeRide.originLat || 6.3156, activeRide.originLng || -10.8074] as [number, number],
-            destination: [activeRide.destLat || 6.3000, activeRide.destLng || -10.7900] as [number, number],
+            origin: [Number(activeRide.originLat) || userCoordinates.lat, Number(activeRide.originLng) || userCoordinates.lng] as [number, number],
+            destination: [Number(activeRide.destLat) || 6.3000, Number(activeRide.destLng) || -10.7900] as [number, number],
             color: "#0f172a",
         });
     }
@@ -859,7 +955,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 <div className="flex-1 w-full h-[380px] md:h-full md:min-h-[calc(100vh-65px)] relative z-0 bg-slate-100">
                     <Map 
                         fullScreen={false}
-                        center={[userCoordinates.lat, userCoordinates.lng]}
+                        center={activeRide ? [Number(activeRide.originLat) || userCoordinates.lat, Number(activeRide.originLng) || userCoordinates.lng] : [userCoordinates.lat, userCoordinates.lng]}
                         zoom={13}
                         onRouteCalculated={handleRouteCalculated}
                         markers={mapMarkers}
@@ -1382,32 +1478,69 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                 </div>
                             </div>
 
+                            {/* Location Permission / GPS Error Banner */}
+                            {locationErrorMessage && (
+                                <div className="flex items-center justify-between gap-2 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl text-xs font-semibold animate-fadeIn">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <AlertCircle size={15} className="text-amber-600 shrink-0" />
+                                        <span className="truncate">{locationErrorMessage}</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => requestCurrentLocation(false)}
+                                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[10px] uppercase shrink-0 transition-all cursor-pointer"
+                                    >
+                                        Retry GPS
+                                    </button>
+                                </div>
+                            )}
+
                             {/* Route Input Box (Pickup, Intermediate Multi-Stops & Destination) */}
                             <div className="bg-slate-50/90 rounded-2xl p-4 border border-slate-100 space-y-3">
                                 {/* Pickup */}
                                 <div className="flex items-center justify-between gap-2">
                                     <div className="flex items-center gap-3 min-w-0 flex-1">
-                                        <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center shrink-0">
+                                        <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${customerPickupGps ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-800"}`}>
                                             <MapPin size={14} />
                                         </div>
                                         <input 
                                             type="text"
                                             value={bookingData.pickup}
-                                            onChange={(e) => setBookingData({ ...bookingData, pickup: e.target.value })}
-                                            placeholder="Enter pickup location"
+                                            onChange={(e) => {
+                                                setBookingData({ ...bookingData, pickup: e.target.value });
+                                                if (!e.target.value.toLowerCase().includes("current") && !e.target.value.toLowerCase().includes("location")) {
+                                                    setCustomerPickupGps(null);
+                                                }
+                                            }}
+                                            placeholder="Enter pickup location or tap Locate Me"
                                             className="flex-1 bg-transparent font-bold text-sm text-slate-900 outline-none placeholder:text-slate-400"
                                         />
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setSavedPlacesTarget("pickup");
-                                            setIsSavedPlacesModalOpen(true);
-                                        }}
-                                        className="text-[10px] font-bold text-slate-500 hover:text-slate-900 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-xs shrink-0"
-                                    >
-                                        Saved
-                                    </button>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => requestCurrentLocation(false)}
+                                            className={`text-[10px] font-bold px-2 py-1 rounded-md border shadow-xs flex items-center gap-1 transition-all cursor-pointer ${
+                                                customerPickupGps 
+                                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300" 
+                                                    : "bg-white text-slate-700 hover:text-slate-900 border-slate-200"
+                                            }`}
+                                            title="Detect and lock current device GPS location"
+                                        >
+                                            <LocateFixed size={12} className={locationLoading ? "animate-spin text-amber-500" : customerPickupGps ? "text-emerald-600" : "text-slate-500"} />
+                                            <span>{customerPickupGps ? "GPS Set" : "Locate Me"}</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSavedPlacesTarget("pickup");
+                                                setIsSavedPlacesModalOpen(true);
+                                            }}
+                                            className="text-[10px] font-bold text-slate-500 hover:text-slate-900 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-xs cursor-pointer shrink-0"
+                                        >
+                                            Saved
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Intermediate Multi-Stops */}

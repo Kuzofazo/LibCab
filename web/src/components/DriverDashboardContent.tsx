@@ -85,8 +85,10 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     // ─── Google Maps Navigation Universal Redirect Helper ──────────────────
     const openGoogleMapsNavigation = useCallback((targetLat?: number, targetLng?: number, address?: string) => {
         let url = "";
-        if (targetLat && targetLng) {
-            url = `https://www.google.com/maps/dir/?api=1&destination=${targetLat},${targetLng}&travelmode=driving&dir_action=navigate`;
+        const numLat = targetLat !== undefined && targetLat !== null ? Number(targetLat) : null;
+        const numLng = targetLng !== undefined && targetLng !== null ? Number(targetLng) : null;
+        if (numLat && numLng && !isNaN(numLat) && !isNaN(numLng) && numLat !== 0 && numLng !== 0) {
+            url = `https://www.google.com/maps/dir/?api=1&destination=${numLat},${numLng}&travelmode=driving&dir_action=navigate`;
         } else if (address) {
             url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving&dir_action=navigate`;
         } else if (myCoords) {
@@ -139,10 +141,10 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             customerPhone: cPhone,
             originAddress: ride.originAddress || "Pickup Location",
             destAddress: ride.destAddress || "Destination",
-            originLat: ride.originLat,
-            originLng: ride.originLng,
-            destLat: ride.destLat,
-            destLng: ride.destLng,
+            originLat: Number(ride.originLat || raw?.originLat || 0),
+            originLng: Number(ride.originLng || raw?.originLng || 0),
+            destLat: Number(ride.destLat || raw?.destLat || 0),
+            destLng: Number(ride.destLng || raw?.destLng || 0),
             fare: ride.fare !== undefined && ride.fare !== null ? Number(ride.fare) : 5.0,
             distanceKm: Number(raw?.distanceKm || ride.distanceKm || 1.8),
             etaMinutes: Number(raw?.etaMinutes || ride.etaMinutes || 4),
@@ -915,7 +917,7 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     activeRideRef.current = data.ride;
                     // Auto-open navigation to customer pickup location upon acceptance
                     if (data.ride.originLat && data.ride.originLng) {
-                        openGoogleMapsNavigation(data.ride.originLat, data.ride.originLng, data.ride.originAddress);
+                        openGoogleMapsNavigation(Number(data.ride.originLat), Number(data.ride.originLng), data.ride.originAddress);
                     }
                 }
                 setShowDirectionsPrompt(true);
@@ -1728,25 +1730,25 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                     // Step 1 & 2: Show customer pickup location ONLY
                                     ...(activeRide?.originLat && activeRide?.originLng ? [{
                                         id: "customer-pickup",
-                                        lat: activeRide.originLat,
-                                        lng: activeRide.originLng,
-                                        title: activeRide.customer?.name || "Customer Pickup",
+                                        lat: Number(activeRide.originLat),
+                                        lng: Number(activeRide.originLng),
+                                        title: activeRide.rider?.name || activeRide.guestName || activeRide.customer?.name || "Customer Pickup",
                                         subtitle: activeRide.originAddress || "Pickup Location",
                                         type: "PICKUP" as const,
                                     }] : []),
                                     // Step 3 & 4: Drop-off destination revealed ONLY after driver starts the ride!
                                     ...(activeRide?.status === "IN_PROGRESS" && activeRide?.destLat && activeRide?.destLng ? [{
                                         id: "customer-dest",
-                                        lat: activeRide.destLat,
-                                        lng: activeRide.destLng,
+                                        lat: Number(activeRide.destLat),
+                                        lng: Number(activeRide.destLng),
                                         title: "Customer Destination",
                                         subtitle: activeRide.destAddress || "Dropoff Destination",
                                         type: "DESTINATION" as const,
                                     }] : []),
                                     ...availableRides.filter(r => r.originLat && r.originLng).map(r => ({
                                         id: `avail-${r.id}`,
-                                        lat: r.originLat!,
-                                        lng: r.originLng!,
+                                        lat: Number(r.originLat),
+                                        lng: Number(r.originLng),
                                         title: `Pickup: ${r.originAddress}`,
                                         subtitle: `Fare: $${r.fare?.toFixed(2) || "0.00"}`,
                                         type: "PICKUP" as const,
@@ -1757,14 +1759,14 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         ? [{
                                             id: "to-dest",
                                             origin: [myCoords.lat, myCoords.lng] as [number, number],
-                                            destination: [activeRide.destLat, activeRide.destLng] as [number, number],
+                                            destination: [Number(activeRide.destLat), Number(activeRide.destLng)] as [number, number],
                                             color: "#2563eb",
                                         }]
                                         : activeRide && activeRide.status !== "IN_PROGRESS" && activeRide?.originLat && activeRide?.originLng
                                             ? [{
                                                 id: "to-pickup",
                                                 origin: [myCoords.lat, myCoords.lng] as [number, number],
-                                                destination: [activeRide.originLat, activeRide.originLng] as [number, number],
+                                                destination: [Number(activeRide.originLat), Number(activeRide.originLng)] as [number, number],
                                                 color: "#0f172a",
                                             }]
                                             : []

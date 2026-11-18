@@ -107,10 +107,10 @@ export async function POST(req: Request) {
                 paymentMethod: payment || "MOMO",
                 status: initialStatus,
                 fare: fare !== undefined && fare !== null ? parseFloat(String(fare)) : null,
-                originLat: originLat !== undefined && originLat !== null ? parseFloat(String(originLat)) : 6.3156,
-                originLng: originLng !== undefined && originLng !== null ? parseFloat(String(originLng)) : -10.8074,
-                destLat: destLat !== undefined && destLat !== null ? parseFloat(String(destLat)) : 6.3156,
-                destLng: destLng !== undefined && destLng !== null ? parseFloat(String(destLng)) : -10.8074,
+                originLat: (originLat !== undefined && originLat !== null && !isNaN(Number(originLat)) && Number(originLat) !== 0) ? parseFloat(String(originLat)) : 6.3156,
+                originLng: (originLng !== undefined && originLng !== null && !isNaN(Number(originLng)) && Number(originLng) !== 0) ? parseFloat(String(originLng)) : -10.8074,
+                destLat: (destLat !== undefined && destLat !== null && !isNaN(Number(destLat)) && Number(destLat) !== 0) ? parseFloat(String(destLat)) : 6.3000,
+                destLng: (destLng !== undefined && destLng !== null && !isNaN(Number(destLng)) && Number(destLng) !== 0) ? parseFloat(String(destLng)) : -10.7900,
             },
             include: {
                 driver: {
@@ -198,8 +198,8 @@ export async function POST(req: Request) {
                                 distanceKm: 0,
                                 etaMinutes: 0,
                                 fare: ride.fare || 0,
-                                vehicleType: ride.vehicleType,
-                                rideCategory: ride.rideCategory,
+                                vehicleType: ride.vehicleType ?? undefined,
+                                rideCategory: ride.rideCategory ?? undefined,
                                 expiresAt: offerExpiresAt.toISOString(),
                             }
                         ).catch(() => {});

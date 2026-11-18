@@ -207,6 +207,20 @@ export async function POST(req: Request) {
         const randomRefSuffix = cryptoModule.randomBytes(3).toString("hex").toUpperCase();
         const bookingReference = `${bookingRefPrefix}-${randomRefSuffix}`;
 
+        // Parse and validate accurate GPS coordinates
+        const parsedOriginLat = (originLat !== undefined && originLat !== null && !isNaN(Number(originLat)) && Number(originLat) !== 0) 
+            ? parseFloat(String(originLat)) 
+            : 6.3156;
+        const parsedOriginLng = (originLng !== undefined && originLng !== null && !isNaN(Number(originLng)) && Number(originLng) !== 0) 
+            ? parseFloat(String(originLng)) 
+            : -10.8074;
+        const parsedDestLat = (destLat !== undefined && destLat !== null && !isNaN(Number(destLat)) && Number(destLat) !== 0) 
+            ? parseFloat(String(destLat)) 
+            : 6.3000;
+        const parsedDestLng = (destLng !== undefined && destLng !== null && !isNaN(Number(destLng)) && Number(destLng) !== 0) 
+            ? parseFloat(String(destLng)) 
+            : -10.7900;
+
         const newRide = await prisma.ride.create({
             data: {
                 riderId: finalRiderId,
@@ -215,10 +229,10 @@ export async function POST(req: Request) {
                 driverId: resolvedDriverProfileId,
                 originAddress: originAddress,
                 destAddress,
-                originLat: originLat || 0,
-                originLng: originLng || 0,
-                destLat: destLat || 0,
-                destLng: destLng || 0,
+                originLat: parsedOriginLat,
+                originLng: parsedOriginLng,
+                destLat: parsedDestLat,
+                destLng: parsedDestLng,
                 vehicleType: vehicleType || "Car",
                 rideCategory: rideCategory || "Regular",
                 paymentMethod: paymentMethod || "MOMO",
@@ -395,8 +409,8 @@ export async function POST(req: Request) {
                                 distanceKm: 0,
                                 etaMinutes: 0,
                                 fare: newRide.fare || 0,
-                                vehicleType: newRide.vehicleType,
-                                rideCategory: newRide.rideCategory,
+                                vehicleType: newRide.vehicleType ?? undefined,
+                                rideCategory: newRide.rideCategory ?? undefined,
                                 expiresAt: offerExpiresAt.toISOString(),
                             }
                         ).catch(() => {});
