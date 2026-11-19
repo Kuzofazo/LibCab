@@ -392,6 +392,13 @@ model Ride {
   acPreference          String?   @default("AC_ON")         // AC_ON, WINDOWS_DOWN, NO_PREFERENCE
   atmospherePreference  String?   @default("NORMAL")        // NORMAL, QUIET
   luggageAssistance     Boolean   @default(false)
+
+  // In-Progress Cancellation & Dynamic Payment Sync
+  cancelledAfterStart      Boolean   @default(false)
+  cancellationFare         Float?
+  actualDistanceTravelled  Float?
+  paymentConfirmedAt       DateTime?
+  paymentAwaitingPassenger Boolean   @default(false)
 }
 
 model PaymentTransaction {

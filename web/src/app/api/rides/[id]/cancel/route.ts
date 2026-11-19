@@ -261,8 +261,97 @@ export async function POST(
         // ─────────────────────────────────────────────────────────────────────
         const previousDriverId = ride.driverId;
         const previousDriverUserId = ride.driver?.userId;
+        const customerName = ride.rider?.name || ride.guestName || "Customer";
+        const isAfterStart = Boolean(ride.startedAt || ride.status === "IN_PROGRESS");
 
-        // Refund driver deposit if it was deducted
+        // Scenario B: In-Progress Cancellation (Ride already started)
+        if (isAfterStart) {
+            const cancellationFare = body.cancellationFare !== undefined 
+                ? Number(body.cancellationFare) 
+                : Math.max(5.00, Math.round(((ride.fare || 25.0) * 0.5) * 100) / 100);
+
+            const updatedRide = await prisma.ride.update({
+                where: { id },
+                data: {
+                    cancelledAfterStart: true,
+                    cancellationFare,
+                    paymentAwaitingPassenger: true,
+                    actualDistanceTravelled: body.actualDistanceTravelled ? Number(body.actualDistanceTravelled) : undefined,
+                    notes: ride.notes
+                        ? `${ride.notes} · [In-progress cancel requested: ${reason || "Cancelled mid-trip"}]`
+                        : `[In-progress cancel requested: ${reason || "Cancelled mid-trip"}]`,
+                },
+                include: {
+                    rider: { select: { id: true, name: true, phone: true, email: true } },
+                    driver: {
+                        include: {
+                            user: { select: { id: true, name: true, phone: true, email: true } }
+                        }
+                    },
+                    stops: { orderBy: { sequence: "asc" } }
+                }
+            });
+
+            // Broadcast PAYMENT_REQUESTED to passenger and driver
+            const paymentPayload = {
+                rideId: id,
+                bookingReference: ride.bookingReference,
+                fare: cancellationFare,
+                cancellationFare,
+                cancellationType: "AFTER_START",
+                reason: reason || "Cancelled after trip started",
+                originAddress: ride.originAddress,
+                destAddress: ride.destAddress,
+                driverName: ride.driver?.user?.name || "Driver",
+                paymentAwaitingPassenger: true,
+                message: `Trip cancelled mid-journey. Cancellation fare of $${cancellationFare.toFixed(2)} is due.`
+            };
+
+            rideStreamManager.publish({
+                type: "PAYMENT_REQUESTED",
+                rideId: id,
+                driverId: previousDriverId || undefined,
+                data: paymentPayload,
+                timestamp: new Date().toISOString()
+            });
+
+            rideStreamManager.publish({
+                type: "RIDE_UPDATED",
+                rideId: id,
+                driverId: previousDriverId || undefined,
+                data: updatedRide,
+                timestamp: new Date().toISOString()
+            });
+
+            // Audit log
+            try {
+                await prisma.dispatcherLog.create({
+                    data: {
+                        dispatcherId: callerUserId,
+                        action: "CUSTOMER_CANCELLED_AFTER_START_PAYMENT_PENDING",
+                        details: JSON.stringify({
+                            rideId: id,
+                            bookingReference: ride.bookingReference,
+                            clientName: customerName,
+                            reason: reason || "Cancelled mid-trip",
+                            cancellationFare,
+                            assignedDriverId: previousDriverId,
+                        })
+                    }
+                });
+            } catch {}
+
+            return NextResponse.json({
+                success: true,
+                requiresPayment: true,
+                cancellationFare,
+                action: "PAYMENT_REQUIRED",
+                message: "Trip was cancelled after start. Please settle the cancellation fare.",
+                ride: updatedRide
+            });
+        }
+
+        // Standard Pre-Trip Cancellation: Refund driver deposit if it was deducted
         if (ride.depositDeducted && previousDriverId) {
             try {
                 const { refundRideDeposit } = await import("@/lib/walletService");
@@ -271,8 +360,6 @@ export async function POST(
                 console.error("Refund on customer cancellation error:", refundErr);
             }
         }
-
-        const customerName = ride.rider?.name || ride.guestName || "Customer";
 
         const updatedRide = await prisma.ride.update({
             where: { id },

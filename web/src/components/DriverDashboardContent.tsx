@@ -781,6 +781,32 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         }
                     }
                     if (user?.id) fetchRides(user.id);
+                } else if (payload.type === "PAYMENT_CONFIRMED" || payload.type === "RIDE_COMPLETED") {
+                    const targetRideId = payload.rideId || payload.data?.rideId || payload.data?.id;
+                    if (activeRideRef.current && activeRideRef.current.id === targetRideId) {
+                        const completedRide = payload.data?.ride || payload.data || activeRideRef.current;
+                        if (!payload.data?.isCancellation) {
+                            setViewingReceiptRide(completedRide);
+                        }
+                        setActiveRide(null);
+                        activeRideRef.current = null;
+                        if (user?.id) fetchRides(user.id);
+                        fetchWallet();
+                    }
+                } else if (payload.type === "DESTINATION_CHANGED" || payload.type === "ROUTE_UPDATED") {
+                    const targetRideId = payload.rideId || payload.data?.rideId || payload.data?.id;
+                    if (activeRideRef.current && activeRideRef.current.id === targetRideId) {
+                        const updatedRide = payload.data?.ride || {
+                            ...activeRideRef.current,
+                            destAddress: payload.data?.newDestAddress || activeRideRef.current.destAddress,
+                            destLat: payload.data?.newDestLat || activeRideRef.current.destLat,
+                            destLng: payload.data?.newDestLng || activeRideRef.current.destLng,
+                            fare: payload.data?.newFare || activeRideRef.current.fare
+                        };
+                        setActiveRide(updatedRide);
+                        activeRideRef.current = updatedRide;
+                        playChimeSound();
+                    }
                 }
             } catch { }
         };
@@ -1073,28 +1099,83 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
         setCompletingTrip(true);
         try {
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-            const res = await fetch("/api/rides", {
-                method: "PATCH",
+            const res = await fetch(`/api/rides/${activeRide.id}/complete`, {
+                method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 },
                 body: JSON.stringify({
-                    id: activeRide.id,
-                    status: "COMPLETED",
-                    paymentStatus: "PAID",
-                    driverPaymentPhone: user.phone || "+231 88 012 3456"
+                    actualDistanceTravelled: activeRide.distance || undefined
                 })
             });
 
             if (res.ok) {
-                const completed = await res.json();
-                setViewingReceiptRide(completed);
-                setActiveRide(null);
-                fetchRides(user.id);
+                const data = await res.json();
+                if (data.ride) {
+                    setActiveRide(data.ride);
+                    activeRideRef.current = data.ride;
+                } else {
+                    setActiveRide((prev: any) => prev ? ({ ...prev, paymentAwaitingPassenger: true }) : null);
+                }
+            } else {
+                // Fallback direct complete
+                const patchRes = await fetch("/api/rides", {
+                    method: "PATCH",
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...(token ? { "Authorization": `Bearer ${token}` } : {})
+                    },
+                    body: JSON.stringify({
+                        id: activeRide.id,
+                        status: "COMPLETED",
+                        paymentStatus: "PAID",
+                        driverPaymentPhone: user?.phone || "+231 88 012 3456"
+                    })
+                });
+                if (patchRes.ok) {
+                    const completed = await patchRes.json();
+                    setViewingReceiptRide(completed);
+                    setActiveRide(null);
+                    activeRideRef.current = null;
+                    if (user?.id) fetchRides(user.id);
+                }
             }
         } catch (error) {
             console.error("Failed to complete ride", error);
+        } finally {
+            setCompletingTrip(false);
+        }
+    };
+
+    const handleDirectCashSettlement = async () => {
+        if (!activeRide) return;
+        setCompletingTrip(true);
+        try {
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const res = await fetch(`/api/rides/${activeRide.id}/pay`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { "Authorization": `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                    paymentMethod: "CASH",
+                    amount: activeRide.fare,
+                    isCancellation: false
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setViewingReceiptRide(data.ride || activeRide);
+                setActiveRide(null);
+                activeRideRef.current = null;
+                if (user?.id) fetchRides(user.id);
+                fetchWallet();
+            }
+        } catch (error) {
+            console.error("Failed to confirm cash settlement", error);
         } finally {
             setCompletingTrip(false);
         }
@@ -2835,15 +2916,32 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                                     >
                                                         <Navigation size={15} /> Google Maps Navigation
                                                     </button>
-                                                    <button
-                                                        type="button"
-                                                        disabled={completingTrip}
-                                                        onClick={handleCompleteRide}
-                                                        className="px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-red-600/20 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
-                                                    >
-                                                        {completingTrip ? <RefreshCw className="animate-spin" size={15} /> : <CheckCircle2 size={15} />}
-                                                        {completingTrip ? "Settling..." : "End Ride & Issue Receipt"}
-                                                    </button>
+                                                    {activeRide.paymentAwaitingPassenger ? (
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <div className="px-4 py-3 bg-amber-500 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md flex items-center gap-2 animate-pulse">
+                                                                <Loader2 size={15} className="animate-spin" />
+                                                                Awaiting Passenger Payment...
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                disabled={completingTrip}
+                                                                onClick={handleDirectCashSettlement}
+                                                                className="px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+                                                            >
+                                                                <Banknote size={15} /> Confirm Cash Received
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            disabled={completingTrip}
+                                                            onClick={handleCompleteRide}
+                                                            className="px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-red-600/20 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+                                                        >
+                                                            {completingTrip ? <RefreshCw className="animate-spin" size={15} /> : <CheckCircle2 size={15} />}
+                                                            {completingTrip ? "Ending Trip..." : "End Ride & Settle Fare"}
+                                                        </button>
+                                                    )}
                                                 </>
                                             )}
                                         </div>

@@ -50,6 +50,8 @@ import SavedPlacesModal, { SavedPlaceItem } from "@/components/SavedPlacesModal"
 import ScheduleRideModal from "@/components/ScheduleRideModal";
 import RiderHistoryModal from "@/components/RiderHistoryModal";
 import LostItemReportModal from "@/components/LostItemReportModal";
+import PaymentModal from "@/components/PaymentModal";
+import ChangeDestinationModal from "@/components/ChangeDestinationModal";
 
 // Shallow equality check for ride objects
 function rideChanged(prev: any, next: any): boolean {
@@ -174,6 +176,13 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     const [midTripStopAddress, setMidTripStopAddress] = useState("");
     const [addingMidTripStop, setAddingMidTripStop] = useState(false);
     const [stoppingShare, setStoppingShare] = useState(false);
+
+    // Payment Workflow & Dynamic Destination State
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [paymentModalFare, setPaymentModalFare] = useState<number | undefined>(undefined);
+    const [paymentModalMode, setPaymentModalMode] = useState<"COMPLETION" | "CANCELLATION_AFTER_START">("COMPLETION");
+    const [paymentModalReason, setPaymentModalReason] = useState<string | undefined>(undefined);
+    const [showChangeDestModal, setShowChangeDestModal] = useState(false);
 
     // Nearby Driver Discovery State
     const [nearbyDrivers, setNearbyDrivers] = useState<NearbyDriverResult[]>([]);
@@ -361,7 +370,45 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                             });
                         }
 
-                        if (type === "RIDE_CANCELLED") {
+                        if (type === "PAYMENT_REQUESTED") {
+                            const myId = userIdRef.current;
+                            const myRideId = activeRideIdRef.current;
+                            if (data && (data.riderId === myId || data.rideId === myRideId || eventRideId === myRideId || !data.riderId)) {
+                                setShowPaymentModal(true);
+                                setPaymentModalFare(data.fare);
+                                setPaymentModalMode(data.cancellationType === "AFTER_START" ? "CANCELLATION_AFTER_START" : "COMPLETION");
+                                setPaymentModalReason(data.reason);
+                                setActiveRide((prev: any) => prev ? ({ ...prev, paymentAwaitingPassenger: true, fare: data.fare || prev.fare }) : prev);
+                            }
+                        } else if (type === "PAYMENT_CONFIRMED") {
+                            const myId = userIdRef.current;
+                            const myRideId = activeRideIdRef.current;
+                            if (data && (data.rideId === myRideId || eventRideId === myRideId)) {
+                                setShowPaymentModal(false);
+                                if (data.isCancellation) {
+                                    setActiveRide(null);
+                                    setLiveDriverPos(null);
+                                    fetchRides();
+                                } else if (data.ride) {
+                                    setActiveRide(data.ride);
+                                }
+                            }
+                        } else if (type === "DESTINATION_CHANGED" || type === "ROUTE_UPDATED") {
+                            const myRideId = activeRideIdRef.current;
+                            if (data && (data.rideId === myRideId || eventRideId === myRideId)) {
+                                if (data.ride) {
+                                    setActiveRide(data.ride);
+                                } else if (data.newDestAddress) {
+                                    setActiveRide((prev: any) => prev ? ({
+                                        ...prev,
+                                        destAddress: data.newDestAddress,
+                                        destLat: data.newDestLat ?? prev.destLat,
+                                        destLng: data.newDestLng ?? prev.destLng,
+                                        fare: data.newFare ?? prev.fare
+                                    }) : prev);
+                                }
+                            }
+                        } else if (type === "RIDE_CANCELLED") {
                             const myId = userIdRef.current;
                             const myRideId = activeRideIdRef.current;
                             if (data && (data.riderId === myId || data.id === myRideId || eventRideId === myRideId)) {
@@ -837,7 +884,12 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
     const handleCancelRide = async () => {
         if (!activeRide) return;
-        if (!confirm("Are you sure you want to cancel this ride?")) return;
+        const isInProgress = activeRide.status === "IN_PROGRESS" || Boolean(activeRide.startedAt);
+        const confirmMsg = isInProgress
+            ? "Cancel ride in progress? A cancellation fee for distance travelled will apply and require settlement."
+            : "Are you sure you want to cancel this ride?";
+        if (!confirm(confirmMsg)) return;
+
         try {
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
             const res = await fetch(`/api/rides/${activeRide.id}/cancel`, {
@@ -847,17 +899,26 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 },
                 body: JSON.stringify({
-                    reason: "Cancelled by customer",
+                    reason: isInProgress ? "Cancelled mid-trip by customer" : "Cancelled by customer",
                     cancelledBy: "RIDER"
                 })
             });
 
             if (res.ok) {
-                setActiveRide(null);
-                setLiveDriverPos(null);
-                prevRideRef.current = null;
-                try { localStorage.removeItem("africab_active_ride_id"); } catch { }
-                fetchRides();
+                const data = await res.json();
+                if (data.requiresPayment) {
+                    setPaymentModalFare(data.cancellationFare);
+                    setPaymentModalMode("CANCELLATION_AFTER_START");
+                    setPaymentModalReason("Trip cancelled mid-journey");
+                    setShowPaymentModal(true);
+                    if (data.ride) setActiveRide(data.ride);
+                } else {
+                    setActiveRide(null);
+                    setLiveDriverPos(null);
+                    prevRideRef.current = null;
+                    try { localStorage.removeItem("africab_active_ride_id"); } catch { }
+                    fetchRides();
+                }
             } else {
                 // Fallback to PATCH /api/rides
                 const patchRes = await fetch("/api/rides", {
@@ -1430,13 +1491,51 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                             <p className="text-sm font-bold text-slate-900 truncate">{activeRide.destAddress}</p>
                                         </div>
                                     </div>
+                                    {activeRide.status !== "COMPLETED" && activeRide.status !== "CANCELLED" && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowChangeDestModal(true)}
+                                            className="px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-[11px] font-bold flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+                                        >
+                                            <Edit2 size={12} /> Change
+                                        </button>
+                                    )}
                                 </div>
                             </div>
+
+                            {/* Action Required: Payment Awaiting Passenger Banner */}
+                            {activeRide.paymentAwaitingPassenger && (
+                                <div className="p-4 bg-emerald-600 text-white rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center justify-between gap-3 animate-pulse">
+                                    <div>
+                                        <div className="text-[10px] font-black uppercase tracking-wider text-emerald-200">Action Required</div>
+                                        <div className="text-sm font-bold">Ride Ending • Settle Fare</div>
+                                        <div className="text-xs text-white/90">{formatDual(activeRide.fare || 25.0)}</div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setPaymentModalFare(activeRide.fare);
+                                            setPaymentModalMode(activeRide.cancelledAfterStart ? "CANCELLATION_AFTER_START" : "COMPLETION");
+                                            setShowPaymentModal(true);
+                                        }}
+                                        className="px-4 py-2 bg-white text-emerald-800 rounded-xl font-black text-xs hover:bg-emerald-50 shadow-sm transition-all cursor-pointer"
+                                    >
+                                        Pay Now
+                                    </button>
+                                </div>
+                            )}
 
                             <div className="border-t border-slate-100" />
 
                             {/* Payment Method Row */}
-                            <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                            <div
+                                onClick={() => {
+                                    setPaymentModalFare(activeRide.fare);
+                                    setPaymentModalMode(activeRide.cancelledAfterStart ? "CANCELLATION_AFTER_START" : "COMPLETION");
+                                    setShowPaymentModal(true);
+                                }}
+                                className="flex items-center justify-between p-3.5 bg-slate-50 hover:bg-slate-100/80 cursor-pointer rounded-2xl border border-slate-100 transition-colors"
+                            >
                                 <div>
                                     <span className="text-[11px] font-bold text-slate-400 uppercase block">Payment &amp; Fare</span>
                                     <p className="text-sm font-black text-slate-900">
@@ -1472,30 +1571,44 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
                             {/* Bottom Dual Action Buttons */}
                             <div className="flex gap-3 pt-1">
-                                {activeRide.status === "REQUESTED" || activeRide.status === "ACCEPTED" ? (
+                                {activeRide.status === "REQUESTED" || activeRide.status === "ACCEPTED" || activeRide.status === "EN_ROUTE" || activeRide.status === "ARRIVED" ? (
                                     <button
                                         type="button"
                                         onClick={handleCancelRide}
-                                        className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-900 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                        className="flex-1 py-4 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-900 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                                     >
                                         <X size={16} /> Cancel ride
                                     </button>
+                                ) : activeRide.status === "IN_PROGRESS" ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={handleCancelRide}
+                                            className="flex-1 py-4 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                        >
+                                            <X size={14} /> End &amp; Cancel Mid-Trip
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setPaymentModalFare(activeRide.fare);
+                                                setPaymentModalMode("COMPLETION");
+                                                setShowPaymentModal(true);
+                                            }}
+                                            className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                        >
+                                            <CreditCard size={14} /> Settle Payment
+                                        </button>
+                                    </>
                                 ) : (
                                     <button
                                         type="button"
                                         onClick={() => setActiveRide(null)}
-                                        className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-900 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                        className="flex-1 py-4 bg-slate-950 hover:bg-slate-900 text-white rounded-2xl font-black text-sm shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                                     >
                                         <Plus size={16} /> New request
                                     </button>
                                 )}
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveRide(null)}
-                                    className="flex-1 py-4 bg-slate-950 hover:bg-slate-900 text-white rounded-2xl font-black text-sm shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                                >
-                                    <Plus size={16} /> New request
-                                </button>
                             </div>
                         </div>
                     )}
@@ -2168,6 +2281,37 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                     }}
                 />
             )}
+
+            {/* Dedicated Ride Payment Modal */}
+            <PaymentModal
+                isOpen={showPaymentModal}
+                onClose={() => setShowPaymentModal(false)}
+                ride={activeRide}
+                fare={paymentModalFare}
+                mode={paymentModalMode}
+                reason={paymentModalReason}
+                onPaymentSuccess={(updatedRide) => {
+                    setShowPaymentModal(false);
+                    if (paymentModalMode === "CANCELLATION_AFTER_START") {
+                        setActiveRide(null);
+                        setLiveDriverPos(null);
+                        try { localStorage.removeItem("africab_active_ride_id"); } catch {}
+                        fetchRides();
+                    } else {
+                        setActiveRide(updatedRide);
+                    }
+                }}
+            />
+
+            {/* Dynamic Change Destination Modal */}
+            <ChangeDestinationModal
+                isOpen={showChangeDestModal}
+                onClose={() => setShowChangeDestModal(false)}
+                ride={activeRide}
+                onSuccess={(updatedRide) => {
+                    setActiveRide(updatedRide);
+                }}
+            />
         </div>
     );
 }
