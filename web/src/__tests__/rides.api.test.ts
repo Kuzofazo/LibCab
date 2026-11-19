@@ -21,6 +21,11 @@ vi.mock('../lib/db', () => ({
             findUnique: vi.fn(),
             create: vi.fn(),
         },
+        rideOffer: {
+            upsert: vi.fn().mockResolvedValue({}),
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+        },
         dispatcherLog: {
             create: vi.fn(),
         },

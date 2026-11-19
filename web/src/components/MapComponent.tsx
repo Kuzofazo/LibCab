@@ -40,7 +40,7 @@ export interface MapMarker {
     lng: number;
     title: string;
     subtitle?: string;
-    type: "AVAILABLE_DRIVER" | "ASSIGNED_DRIVER" | "BUSY_DRIVER" | "PICKUP" | "DESTINATION" | "CUSTOMER" | "MY_LOCATION";
+    type: "AVAILABLE_DRIVER" | "ASSIGNED_DRIVER" | "BUSY_DRIVER" | "PICKUP" | "DESTINATION" | "CUSTOMER" | "MY_LOCATION" | "STOP";
     vehicleType?: string;
     vehicleModel?: string;
     licensePlate?: string;
@@ -49,6 +49,8 @@ export interface MapMarker {
     etaText?: string;
     distanceText?: string;
     heading?: number;
+    order?: number;
+    completed?: boolean;
     onSelect?: () => void;
 }
 
@@ -88,7 +90,16 @@ export interface MapProps {
 
 // ─── Custom marker icons for Mapbox engine ─────────────────────────────────
 
-const PinIcon = ({ type, etaText }: { type: string; etaText?: string }) => {
+const PinIcon = ({ type, etaText, order }: { type: string; etaText?: string; order?: number }) => {
+    if (type === "STOP") {
+        return (
+            <div className="relative flex flex-col items-center justify-center cursor-pointer group">
+                <div className="w-6 h-6 rounded-full bg-amber-500 border-2 border-white shadow-xl flex items-center justify-center text-white font-black text-[11px] transition-transform group-hover:scale-110">
+                    {order || "•"}
+                </div>
+            </div>
+        );
+    }
     const isPickup = type === "PICKUP";
     if (isPickup) {
         return (

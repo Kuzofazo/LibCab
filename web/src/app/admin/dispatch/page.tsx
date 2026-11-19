@@ -319,7 +319,7 @@ export default function DispatchPage() {
                 body: JSON.stringify({
                     id: selectedRideForAssignment.id,
                     driverId: driverId,
-                    status: "ACCEPTED"
+                    status: "ASSIGNED"
                 })
             });
             if (res.ok) {

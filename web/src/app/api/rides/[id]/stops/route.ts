@@ -68,13 +68,21 @@ export async function POST(
         const stopAdditionFee = 2.50;
         const newFare = (ride.fare || 25.0) + stopAdditionFee;
 
+        // Fallback coordinates between pickup and destination if lat/lng not provided
+        let stopLat = typeof lat === "number" && !isNaN(lat) && lat !== 0 ? lat : 0;
+        let stopLng = typeof lng === "number" && !isNaN(lng) && lng !== 0 ? lng : 0;
+        if (!stopLat || !stopLng) {
+            stopLat = (ride.originLat + ride.destLat) / 2 || 6.3156;
+            stopLng = (ride.originLng + ride.destLng) / 2 || -10.8074;
+        }
+
         const newStop = await prisma.rideStop.create({
             data: {
                 rideId,
                 sequence: nextSequence,
                 address,
-                lat: lat || 0,
-                lng: lng || 0,
+                lat: stopLat,
+                lng: stopLng,
                 status: "PENDING"
             }
         });
@@ -93,6 +101,23 @@ export async function POST(
         });
 
         // Broadcast to both Rider and Driver screens in real-time
+        const stopPayload = {
+            rideId: ride.id,
+            bookingReference: ride.bookingReference,
+            ride: updatedRide,
+            stop: newStop,
+            newFare,
+            message: `New stop added: ${address}`
+        };
+
+        rideStreamManager.publish({
+            type: "ROUTE_UPDATED",
+            rideId: ride.id,
+            driverId: ride.driverId || undefined,
+            data: stopPayload,
+            timestamp: new Date().toISOString()
+        });
+
         rideStreamManager.publish({
             type: "RIDE_UPDATED",
             rideId: ride.id,

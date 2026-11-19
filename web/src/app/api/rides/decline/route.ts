@@ -5,7 +5,7 @@ import { DispatchEngine } from "@/services/dispatchEngine";
 
 export async function POST(req: Request) {
     try {
-        const user = await verifyJWT();
+        const user = await verifyJWT(req);
         if (!user || user.role !== "DRIVER") {
             return NextResponse.json({ error: "Unauthorized. Driver access only." }, { status: 401 });
         }

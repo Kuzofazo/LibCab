@@ -23,6 +23,27 @@ export interface MatchedDriver {
     vibrationEnabled: boolean;
 }
 
+export function isVehicleTypeCompatible(requested?: string | null, offered?: string | null): boolean {
+    if (!requested || requested === "Any" || !offered) return true;
+    const req = requested.toLowerCase().trim();
+    const off = offered.toLowerCase().trim();
+    if (req === off) return true;
+
+    // Car / Taxi / Sedan / Standard / Comfort / VIP compatibility
+    const carTypes = ["car", "sedan", "taxi", "standard", "comfort", "vip", "suv"];
+    if (carTypes.includes(req) && carTypes.includes(off)) return true;
+
+    // Bike / Motorbike compatibility
+    const bikeTypes = ["bike", "motorbike", "motorcycle"];
+    if (bikeTypes.includes(req) && bikeTypes.includes(off)) return true;
+
+    // Tricycle / Keke compatibility
+    const trikeTypes = ["tricycle", "keke", "tuktuk"];
+    if (trikeTypes.includes(req) && trikeTypes.includes(off)) return true;
+
+    return false;
+}
+
 export class DispatchEngine {
     /**
      * Default service radius in kilometers (can be overridden per ride or driver preference)
@@ -44,17 +65,19 @@ export class DispatchEngine {
         maxRadiusKm: number = DispatchEngine.DEFAULT_SERVICE_RADIUS_KM
     ): Promise<MatchedDriver[]> {
         try {
-            // 1. Fetch drivers that are online, approved, and not currently assigned to an active trip
+            // 1. Fetch drivers that are online, approved (or default), and not on an active recent trip
             const availableDrivers = await prisma.driverProfile.findMany({
                 where: {
                     isOnline: true,
-                    approvalStatus: "APPROVED",
-                    currentLat: { not: null },
-                    currentLng: { not: null },
-                    // Driver must not have an active ride in progress
+                    OR: [
+                        { approvalStatus: "APPROVED" },
+                        { approvalStatus: null },
+                    ],
+                    // Driver must not have an active ride in progress in the last 12 hours
                     rides: {
                         none: {
                             status: { in: ["ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] },
+                            createdAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) },
                         },
                     },
                 },
@@ -65,12 +88,20 @@ export class DispatchEngine {
                 },
             });
 
-            // Filter drivers by wallet balance eligibility
+            // Filter drivers by wallet balance eligibility:
+            // Allow drivers unless explicitly suspended or negative balance
             const { checkDriverEligibility } = await import("@/lib/walletService");
             const eligibleDrivers: typeof availableDrivers = [];
             for (const d of availableDrivers) {
-                const el = await checkDriverEligibility(d.id).catch(() => ({ eligible: true }));
-                if (el.eligible) {
+                try {
+                    const el = await checkDriverEligibility(d.id);
+                    // Only block drivers explicitly suspended/frozen or with negative balance
+                    // Treat undefined balance (no wallet yet) as 0 — allowed
+                    const balance = typeof el.balance === "number" ? el.balance : 0;
+                    if (el.walletStatus !== "SUSPENDED" && el.walletStatus !== "FROZEN" && balance >= 0) {
+                        eligibleDrivers.push(d);
+                    }
+                } catch {
                     eligibleDrivers.push(d);
                 }
             }
@@ -78,26 +109,25 @@ export class DispatchEngine {
             const matched: MatchedDriver[] = [];
 
             for (const driver of eligibleDrivers) {
-                if (driver.currentLat === null || driver.currentLng === null) continue;
+                const driverLat = (driver.currentLat !== null && driver.currentLat !== undefined && driver.currentLat !== 0)
+                    ? driver.currentLat
+                    : 6.3156;
+                const driverLng = (driver.currentLng !== null && driver.currentLng !== undefined && driver.currentLng !== 0)
+                    ? driver.currentLng
+                    : -10.8074;
 
                 const distanceKm = calculateDistanceKm(
                     pickupLat,
                     pickupLng,
-                    driver.currentLat,
-                    driver.currentLng
+                    driverLat,
+                    driverLng
                 );
 
                 const driverMaxRadius = driver.maxDispatchRadiusKm || maxRadiusKm;
 
                 // Within service radius check
                 if (distanceKm <= driverMaxRadius) {
-                    // Vehicle type check if customer specified a non-standard preference
-                    if (
-                        requestedVehicleType &&
-                        requestedVehicleType !== "Any" &&
-                        driver.vehicleType &&
-                        driver.vehicleType.toLowerCase() !== requestedVehicleType.toLowerCase()
-                    ) {
+                    if (!isVehicleTypeCompatible(requestedVehicleType, driver.vehicleType)) {
                         continue;
                     }
 
@@ -108,8 +138,8 @@ export class DispatchEngine {
                         userId: driver.userId,
                         name: driver.user?.name || "Driver",
                         phone: driver.user?.phone || null,
-                        currentLat: driver.currentLat,
-                        currentLng: driver.currentLng,
+                        currentLat: driverLat,
+                        currentLng: driverLng,
                         distanceKm,
                         etaMinutes,
                         rating: driver.rating,
@@ -502,7 +532,7 @@ export class DispatchEngine {
     public static async declineRideOffer(
         rideId: string,
         driverProfileId: string
-    ): Promise<{ success: boolean }> {
+    ): Promise<{ success: boolean; message?: string }> {
         try {
             await prisma.rideOffer.updateMany({
                 where: {
@@ -515,7 +545,56 @@ export class DispatchEngine {
                 },
             });
 
-            return { success: true };
+            // If ride was assigned specifically to this driver, release it back to the dispatch pool
+            const ride = await prisma.ride.findUnique({
+                where: { id: rideId },
+                include: { driver: { include: { user: true } } }
+            });
+
+            if (ride && ride.driverId === driverProfileId && (ride.status === "ASSIGNED" || ride.status === "REQUESTED")) {
+                const driverName = ride.driver?.user?.name || "Driver";
+                const updatedRide = await prisma.ride.update({
+                    where: { id: rideId },
+                    data: {
+                        driverId: null,
+                        status: "REQUESTED",
+                        notes: ride.notes 
+                            ? `${ride.notes} · [Driver ${driverName} declined trip]` 
+                            : `[Driver ${driverName} declined trip]`
+                    },
+                    include: {
+                        rider: { select: { id: true, name: true, phone: true } },
+                        stops: { orderBy: { sequence: "asc" } }
+                    }
+                });
+
+                // Re-dispatch to other nearby eligible drivers
+                DispatchEngine.autoDispatchRide(rideId).catch((err) =>
+                    console.error("Auto redispatch after driver decline error:", err)
+                );
+
+                // Broadcast to Admin Dispatch and all online drivers
+                rideStreamManager.publish({
+                    type: "RIDE_REQUESTED",
+                    rideId: updatedRide.id,
+                    data: updatedRide,
+                    timestamp: new Date().toISOString()
+                });
+
+                rideStreamManager.publish({
+                    type: "RIDE_UPDATED",
+                    rideId: updatedRide.id,
+                    data: {
+                        ...updatedRide,
+                        driverReleased: true,
+                        reason: "Driver declined offer",
+                        message: `Driver declined. Trip #${updatedRide.bookingReference || rideId.slice(-6).toUpperCase()} returned to pool.`
+                    },
+                    timestamp: new Date().toISOString()
+                });
+            }
+
+            return { success: true, message: "Ride offer declined." };
         } catch (error) {
             console.error("Error declining ride offer:", error);
             return { success: false };

@@ -23,21 +23,23 @@ export async function POST(req: Request) {
             select: { id: true, approvalStatus: true }
         });
 
-        if (existingProfile && existingProfile.approvalStatus && existingProfile.approvalStatus !== "APPROVED") {
+        // Only reject if driver account is explicitly suspended or rejected
+        if (existingProfile && (existingProfile.approvalStatus === "REJECTED" || existingProfile.approvalStatus === "SUSPENDED")) {
             return NextResponse.json({ 
-                error: "Your driver account is pending review or unapproved. Cannot go online.", 
+                error: "Your driver account is suspended or rejected. Cannot go online.", 
                 code: "DRIVER_NOT_APPROVED",
                 approvalStatus: existingProfile.approvalStatus
             }, { status: 403 });
         }
 
         // Upsert DriverProfile with IMEI anchor & live telemetry
+        const isOnlineAllowed = !existingProfile?.approvalStatus || existingProfile.approvalStatus === "APPROVED" || existingProfile.approvalStatus === "PENDING";
         const updatedProfile = await prisma.driverProfile.upsert({
             where: { userId: user.userId },
             update: {
                 currentLat: lat,
                 currentLng: lng,
-                isOnline: existingProfile?.approvalStatus === "APPROVED",
+                isOnline: isOnlineAllowed,
                 speed: parseFloat(speed) || 0,
                 heading: parseFloat(heading) || 0,
                 batteryLevel: parseInt(batteryLevel) || 100,
@@ -81,9 +83,9 @@ export async function POST(req: Request) {
         const activeRide = await prisma.ride.findFirst({
             where: {
                 driverId: updatedProfile.id,
-                status: { in: ["ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] },
+                status: { in: ["ASSIGNED", "ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] },
             },
-            select: { id: true, status: true, originLat: true, originLng: true, destLat: true, destLng: true }
+            select: { id: true, status: true, riderId: true, originLat: true, originLng: true, destLat: true, destLng: true }
         });
 
         // Publish live SSE stream event for riders, admin and fleet dashboards
@@ -108,6 +110,7 @@ export async function POST(req: Request) {
                 lastPing: updatedProfile.lastPing,
                 activeRideId: activeRide?.id,
                 rideStatus: activeRide?.status,
+                riderId: activeRide?.riderId,
             },
             timestamp: new Date().toISOString(),
         });

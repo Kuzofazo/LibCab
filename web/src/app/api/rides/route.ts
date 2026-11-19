@@ -346,7 +346,7 @@ export async function POST(req: Request) {
                 // Driver was manually selected by customer:
                 // 1. Create a RideOffer so the driver gets the Accept prompt
                 const offerExpiresAt = new Date(Date.now() + 60_000); // 60-second window
-                await prisma.rideOffer.upsert({
+                await prisma.rideOffer?.upsert?.({
                     where: { rideId_driverId: { rideId: newRide.id, driverId: resolvedDriverProfileId } },
                     create: {
                         rideId: newRide.id,
@@ -358,7 +358,7 @@ export async function POST(req: Request) {
                         status: "PENDING",
                         expiresAt: offerExpiresAt,
                     },
-                }).catch((err) => console.error("Failed to create RideOffer for selected driver:", err));
+                })?.catch?.((err) => console.error("Failed to create RideOffer for selected driver:", err));
 
                 // 2. Notify the selected driver via SSE with RIDE_OFFER_RECEIVED (shows Accept button)
                 rideStreamManager.publish({
@@ -530,8 +530,9 @@ export async function PATCH(req: Request) {
         }
 
 
+        let driverRecord: any = null;
         if (driverId) {
-            let driverRecord = await prisma.driverProfile.findUnique({
+            driverRecord = await prisma.driverProfile.findUnique({
                 where: { userId: driverId }
             });
 
@@ -563,6 +564,10 @@ export async function PATCH(req: Request) {
 
             if (driverRecord) {
                 updateData.driverId = driverRecord.id;
+                // If status wasn't explicitly set, default to ASSIGNED so driver receives the Accept/Decline prompt
+                if (!status && updateData.status !== "COMPLETED" && updateData.status !== "CANCELLED") {
+                    updateData.status = "ASSIGNED";
+                }
             }
         }
 
@@ -584,6 +589,80 @@ export async function PATCH(req: Request) {
             const { memoryCache } = await import("@/lib/cache");
             memoryCache.delete(`ride_details_${id}`);
         } catch {}
+
+        // Broadcast driver assignment events and provision RideOffer
+        if (driverRecord && updateData.driverId && updateData.status !== "COMPLETED" && updateData.status !== "CANCELLED") {
+            const offerExpiresAt = new Date(Date.now() + 60_000);
+            await prisma.rideOffer?.upsert?.({
+                where: { rideId_driverId: { rideId: updatedRide.id, driverId: driverRecord.id } },
+                create: {
+                    rideId: updatedRide.id,
+                    driverId: driverRecord.id,
+                    status: "PENDING",
+                    expiresAt: offerExpiresAt,
+                },
+                update: {
+                    status: "PENDING",
+                    expiresAt: offerExpiresAt,
+                },
+            })?.catch?.(() => {});
+
+            const assignmentData = {
+                ride: updatedRide,
+                offerExpiresAt: offerExpiresAt.toISOString(),
+                countdownSeconds: 60,
+                isDirectAssignment: true,
+                driverProfileId: driverRecord.id,
+                driverUserId: driverRecord.userId,
+                message: `You have been assigned to trip #${updatedRide.bookingReference || id.slice(-6).toUpperCase()}`
+            };
+
+            // Broadcast DRIVER_ASSIGNED & RIDE_OFFER_RECEIVED
+            rideStreamManager.publish({
+                type: "DRIVER_ASSIGNED",
+                rideId: updatedRide.id,
+                driverId: driverRecord.id,
+                data: assignmentData,
+                timestamp: new Date().toISOString(),
+            });
+
+            rideStreamManager.publish({
+                type: "RIDE_OFFER_RECEIVED",
+                rideId: updatedRide.id,
+                driverId: driverRecord.id,
+                data: assignmentData,
+                timestamp: new Date().toISOString(),
+            });
+
+            // Send push notification to assigned driver
+            try {
+                const { PushNotificationService } = await import("@/services/pushNotificationService");
+                await PushNotificationService.notifyDriversOfRideRequest(
+                    [{
+                        id: driverRecord.id,
+                        pushToken: driverRecord.pushToken,
+                        fcmToken: driverRecord.fcmToken,
+                        soundEnabled: driverRecord.soundEnabled !== false,
+                        vibrationEnabled: driverRecord.vibrationEnabled !== false,
+                    }],
+                    {
+                        rideId: updatedRide.id,
+                        originAddress: updatedRide.originAddress,
+                        destAddress: updatedRide.destAddress,
+                        originLat: updatedRide.originLat || 0,
+                        originLng: updatedRide.originLng || 0,
+                        destLat: updatedRide.destLat || 0,
+                        destLng: updatedRide.destLng || 0,
+                        distanceKm: 0,
+                        etaMinutes: 0,
+                        fare: updatedRide.fare || 0,
+                        vehicleType: updatedRide.vehicleType ?? undefined,
+                        rideCategory: updatedRide.rideCategory ?? undefined,
+                        expiresAt: offerExpiresAt.toISOString(),
+                    }
+                ).catch(() => {});
+            } catch {}
+        }
 
         // Broadcast real-time SSE stream update
         let eventType: "RIDE_ACCEPTED" | "DRIVER_ARRIVED" | "RIDE_UPDATED" | "RIDE_CANCELLED" = "RIDE_UPDATED";

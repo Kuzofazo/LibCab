@@ -183,6 +183,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     const [paymentModalMode, setPaymentModalMode] = useState<"COMPLETION" | "CANCELLATION_AFTER_START">("COMPLETION");
     const [paymentModalReason, setPaymentModalReason] = useState<string | undefined>(undefined);
     const [showChangeDestModal, setShowChangeDestModal] = useState(false);
+    const [changeDestInitialTab, setChangeDestInitialTab] = useState<"DESTINATION" | "ADD_STOP">("DESTINATION");
 
     // Nearby Driver Discovery State
     const [nearbyDrivers, setNearbyDrivers] = useState<NearbyDriverResult[]>([]);
@@ -345,24 +346,35 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
                         if (type === "LOCATION_UPDATED" && data) {
                             sseLastEventRef.current = Date.now();
+                            const myId = userIdRef.current;
+                            const myRideId = activeRideIdRef.current;
                             const driverId = data.driverId;
+
                             setActiveRide((prev: any) => {
-                                if (prev && (prev.driverId === driverId || prev.driver?.id === driverId || prev.driver?.userId === data.userId || prev.driverId === data.driverProfileId)) {
-                                    // Update live position state for smooth map animation
+                                const isForMyRide = prev && (
+                                    (myRideId && (eventRideId === myRideId || data.activeRideId === myRideId)) ||
+                                    (myId && (data.riderId === myId || prev.riderId === myId || prev.rider?.id === myId)) ||
+                                    prev.driverId === driverId ||
+                                    prev.driver?.id === driverId ||
+                                    prev.driver?.userId === data.userId ||
+                                    prev.driverId === data.driverProfileId
+                                );
+
+                                if (isForMyRide && data.lat && data.lng) {
                                     setLiveDriverPos({
-                                        lat: data.lat,
-                                        lng: data.lng,
-                                        heading: data.heading ?? 0,
-                                        speed: data.speed ?? 0,
+                                        lat: Number(data.lat),
+                                        lng: Number(data.lng),
+                                        heading: Number(data.heading ?? 0),
+                                        speed: Number(data.speed ?? 0),
                                     });
                                     return {
                                         ...prev,
                                         driver: {
                                             ...prev.driver,
-                                            currentLat: data.lat,
-                                            currentLng: data.lng,
-                                            speed: data.speed,
-                                            heading: data.heading,
+                                            currentLat: Number(data.lat),
+                                            currentLng: Number(data.lng),
+                                            speed: Number(data.speed ?? 0),
+                                            heading: Number(data.heading ?? 0),
                                         }
                                     };
                                 }
@@ -459,28 +471,28 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
         connect();
 
-        // ── Fallback polling: if SSE hasn't had a LOCATION_UPDATED in 15s, poll /api/driver/live ──
+        // ── Continuous live driver tracking backup: poll /api/driver/live every 3.5s if SSE is silent ──
         const fallbackInterval = setInterval(() => {
             const rideId = activeRideIdRef.current;
             if (!rideId) return;
-            if (Date.now() - sseLastEventRef.current < 15000) return; // SSE is live
+            if (Date.now() - sseLastEventRef.current < 4000) return; // SSE is currently live
 
             fetch(`/api/driver/live?rideId=${rideId}`)
                 .then(r => r.ok ? r.json() : null)
                 .then(result => {
                     if (!result?.driver?.lat || !result?.driver?.lng) return;
                     const { lat, lng, heading, speed } = result.driver;
-                    setLiveDriverPos({ lat, lng, heading: heading ?? 0, speed: speed ?? 0 });
+                    setLiveDriverPos({ lat: Number(lat), lng: Number(lng), heading: Number(heading ?? 0), speed: Number(speed ?? 0) });
                     setActiveRide((prev: any) => {
                         if (!prev) return prev;
                         return {
                             ...prev,
-                            driver: { ...prev.driver, currentLat: lat, currentLng: lng, heading, speed }
+                            driver: { ...prev.driver, currentLat: Number(lat), currentLng: Number(lng), heading: Number(heading ?? 0), speed: Number(speed ?? 0) }
                         };
                     });
                 })
                 .catch(() => { });
-        }, 8000);
+        }, 3500);
 
         return () => {
             destroyed = true;
@@ -603,17 +615,13 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 if (rideChanged(prevRideRef.current, myActive)) {
                     prevRideRef.current = myActive;
                     setActiveRide(myActive);
-                    // Seed live driver position when ride is freshly loaded
+                    // Seed live driver position when ride is freshly loaded or updated
                     if (myActive?.driver?.currentLat && myActive?.driver?.currentLng) {
-                        setLiveDriverPos(prev => {
-                            // Don't overwrite if SSE already gave us a newer position
-                            if (prev) return prev;
-                            return {
-                                lat: myActive.driver.currentLat,
-                                lng: myActive.driver.currentLng,
-                                heading: myActive.driver.heading ?? 0,
-                                speed: myActive.driver.speed ?? 0,
-                            };
+                        setLiveDriverPos({
+                            lat: Number(myActive.driver.currentLat),
+                            lng: Number(myActive.driver.currentLng),
+                            heading: Number(myActive.driver.heading ?? 0),
+                            speed: Number(myActive.driver.speed ?? 0),
                         });
                     }
                     if (!myActive) setLiveDriverPos(null);
@@ -711,6 +719,22 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         if (!activeRide || !midTripStopAddress.trim()) return;
         setAddingMidTripStop(true);
         try {
+            // Geocode the stop address
+            let stopCoords: { lat: number; lng: number } | null = null;
+            try {
+                const geo = await locationProvider.geocode(midTripStopAddress.trim());
+                if (geo && geo.lat && geo.lng) {
+                    stopCoords = { lat: Number(geo.lat), lng: Number(geo.lng) };
+                }
+            } catch { }
+
+            if (!stopCoords) {
+                stopCoords = {
+                    lat: (Number(activeRide.originLat || 6.3156) + Number(activeRide.destLat || 6.3000)) / 2,
+                    lng: (Number(activeRide.originLng || -10.8074) + Number(activeRide.destLng || -10.7900)) / 2,
+                };
+            }
+
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
             const res = await fetch(`/api/rides/${activeRide.id}/stops`, {
                 method: "POST",
@@ -720,8 +744,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 },
                 body: JSON.stringify({
                     address: midTripStopAddress.trim(),
-                    lat: 6.3100,
-                    lng: -10.8000
+                    lat: stopCoords.lat,
+                    lng: stopCoords.lng
                 })
             });
             if (res.ok) {
@@ -958,17 +982,21 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     const mapMarkers: any[] = [];
     if (activeRide) {
         // Use live position from SSE/polling if available; fall back to ride object
-        const driverLat = liveDriverPos?.lat || activeRide.driver?.currentLat;
-        const driverLng = liveDriverPos?.lng || activeRide.driver?.currentLng;
+        const driverLat = liveDriverPos?.lat ?? (activeRide.driver?.currentLat ? Number(activeRide.driver.currentLat) : undefined);
+        const driverLng = liveDriverPos?.lng ?? (activeRide.driver?.currentLng ? Number(activeRide.driver.currentLng) : undefined);
         const driverHeading = liveDriverPos?.heading ?? activeRide.driver?.heading ?? 0;
 
-        if (driverLat && driverLng) {
+        if (driverLat && driverLng && ["ASSIGNED", "ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"].includes(activeRide.status)) {
             mapMarkers.push({
                 id: "assigned_driver",
                 lat: driverLat,
                 lng: driverLng,
                 title: activeRide.driver?.user?.name || activeRide.driver?.name || "Assigned Driver",
-                subtitle: activeRide.status === "ARRIVED" ? "Driver Arrived" : "Driver En Route",
+                subtitle: activeRide.status === "ARRIVED" 
+                    ? "Driver Arrived at Pickup" 
+                    : activeRide.status === "IN_PROGRESS" 
+                        ? "Heading to Destination" 
+                        : "Approaching Pickup",
                 type: "ASSIGNED_DRIVER",
                 vehicleType: activeRide.driver?.vehicleType || "Car",
                 heading: driverHeading,
@@ -976,20 +1004,42 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 etaText: activeRide.eta ? `${activeRide.eta} min` : undefined,
             });
         }
+
+        // Pickup Marker
         mapMarkers.push({
             id: "pickup",
             lat: Number(activeRide.originLat) || Number(userCoordinates.lat) || 6.3156,
             lng: Number(activeRide.originLng) || Number(userCoordinates.lng) || -10.8074,
-            title: "Pick up",
+            title: "Pick up Location",
             subtitle: activeRide.originAddress,
             type: "PICKUP",
             etaText: activeRide.eta ? `${activeRide.eta} min` : undefined,
         });
+
+        // Intermediate Stop Markers
+        if (activeRide.stops && Array.isArray(activeRide.stops)) {
+            activeRide.stops.forEach((stop: any, idx: number) => {
+                if (stop.lat && stop.lng) {
+                    mapMarkers.push({
+                        id: `stop_${stop.id || idx}`,
+                        lat: Number(stop.lat),
+                        lng: Number(stop.lng),
+                        title: `Stop ${stop.sequence || idx + 1}`,
+                        subtitle: stop.address,
+                        type: "STOP",
+                        order: stop.sequence || idx + 1,
+                        completed: stop.status === "COMPLETED",
+                    });
+                }
+            });
+        }
+
+        // Final Destination Marker
         mapMarkers.push({
             id: "dest",
             lat: Number(activeRide.destLat) || 6.3000,
             lng: Number(activeRide.destLng) || -10.7900,
-            title: "Destination",
+            title: "Final Destination",
             subtitle: activeRide.destAddress,
             type: "DESTINATION",
         });
@@ -1025,18 +1075,19 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     }
 
     // Dynamic driver distance & ETA calculation — uses live position first
-    const driverCurrentLat = liveDriverPos?.lat || activeRide?.driver?.currentLat;
-    const driverCurrentLng = liveDriverPos?.lng || activeRide?.driver?.currentLng;
+    const driverCurrentLat = liveDriverPos?.lat ?? (activeRide?.driver?.currentLat ? Number(activeRide.driver.currentLat) : undefined);
+    const driverCurrentLng = liveDriverPos?.lng ?? (activeRide?.driver?.currentLng ? Number(activeRide.driver.currentLng) : undefined);
     const driverNav = (activeRide && driverCurrentLat && driverCurrentLng)
         ? (activeRide.status === "IN_PROGRESS"
-            ? getDistanceAndEta(driverCurrentLat, driverCurrentLng, activeRide.destLat, activeRide.destLng)
-            : getDistanceAndEta(driverCurrentLat, driverCurrentLng, activeRide.originLat, activeRide.originLng))
+            ? getDistanceAndEta(driverCurrentLat, driverCurrentLng, Number(activeRide.destLat), Number(activeRide.destLng))
+            : getDistanceAndEta(driverCurrentLat, driverCurrentLng, Number(activeRide.originLat), Number(activeRide.originLng)))
         : null;
 
     // Construct Routes
     const mapRoutes: any[] = [];
     if (activeRide) {
-        if ((activeRide.status === "ACCEPTED" || activeRide.status === "EN_ROUTE") && driverCurrentLat && driverCurrentLng) {
+        // Driver approaching pickup route
+        if ((activeRide.status === "ASSIGNED" || activeRide.status === "ACCEPTED" || activeRide.status === "EN_ROUTE") && driverCurrentLat && driverCurrentLng) {
             mapRoutes.push({
                 id: "driver-to-pickup-route",
                 origin: [driverCurrentLat, driverCurrentLng] as [number, number],
@@ -1044,6 +1095,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 color: "#059669",
             });
         }
+
+        // Live trip navigation when in progress
         if (activeRide.status === "IN_PROGRESS" && driverCurrentLat && driverCurrentLng) {
             mapRoutes.push({
                 id: "driver-to-dest-route",
@@ -1052,12 +1105,39 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 color: "#2563eb",
             });
         }
-        mapRoutes.push({
-            id: "active-trip-route",
-            origin: [Number(activeRide.originLat) || userCoordinates.lat, Number(activeRide.originLng) || userCoordinates.lng] as [number, number],
-            destination: [Number(activeRide.destLat) || 6.3000, Number(activeRide.destLng) || -10.7900] as [number, number],
-            color: "#0f172a",
-        });
+
+        // Trip base route (including intermediate stops if present)
+        if (activeRide.stops && Array.isArray(activeRide.stops) && activeRide.stops.length > 0) {
+            let lastPoint: [number, number] = [
+                Number(activeRide.originLat) || userCoordinates.lat,
+                Number(activeRide.originLng) || userCoordinates.lng
+            ];
+            activeRide.stops.forEach((st: any, idx: number) => {
+                if (st.lat && st.lng) {
+                    const stopPoint: [number, number] = [Number(st.lat), Number(st.lng)];
+                    mapRoutes.push({
+                        id: `leg-to-stop-${idx + 1}`,
+                        origin: lastPoint,
+                        destination: stopPoint,
+                        color: "#f59e0b",
+                    });
+                    lastPoint = stopPoint;
+                }
+            });
+            mapRoutes.push({
+                id: "leg-from-stops-to-dest",
+                origin: lastPoint,
+                destination: [Number(activeRide.destLat) || 6.3000, Number(activeRide.destLng) || -10.7900] as [number, number],
+                color: "#0f172a",
+            });
+        } else {
+            mapRoutes.push({
+                id: "active-trip-route",
+                origin: [Number(activeRide.originLat) || userCoordinates.lat, Number(activeRide.originLng) || userCoordinates.lng] as [number, number],
+                destination: [Number(activeRide.destLat) || 6.3000, Number(activeRide.destLng) || -10.7900] as [number, number],
+                color: "#0f172a",
+            });
+        }
     }
 
     return (
@@ -1471,8 +1551,11 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                         ) : (
                                             <button
                                                 type="button"
-                                                onClick={() => setIsMidTripAddOpen(true)}
-                                                className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors border border-dashed border-slate-300"
+                                                onClick={() => {
+                                                    setChangeDestInitialTab("ADD_STOP");
+                                                    setShowChangeDestModal(true);
+                                                }}
+                                                className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors border border-dashed border-slate-300 cursor-pointer"
                                             >
                                                 <Plus size={13} /> Add Stop Mid-Trip (+ $2.50)
                                             </button>
@@ -1494,7 +1577,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                     {activeRide.status !== "COMPLETED" && activeRide.status !== "CANCELLED" && (
                                         <button
                                             type="button"
-                                            onClick={() => setShowChangeDestModal(true)}
+                                            onClick={() => {
+                                                setChangeDestInitialTab("DESTINATION");
+                                                setShowChangeDestModal(true);
+                                            }}
                                             className="px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-[11px] font-bold flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
                                         >
                                             <Edit2 size={12} /> Change
@@ -2303,9 +2389,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 }}
             />
 
-            {/* Dynamic Change Destination Modal */}
+            {/* Dynamic Change Destination / Add Stop Modal */}
             <ChangeDestinationModal
                 isOpen={showChangeDestModal}
+                initialTab={changeDestInitialTab}
                 onClose={() => setShowChangeDestModal(false)}
                 ride={activeRide}
                 onSuccess={(updatedRide) => {

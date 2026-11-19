@@ -493,6 +493,43 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
         };
     }, []);
 
+    // ── Pending Offer Recovery: show any PENDING offers on mount (e.g. driver came online after request was sent) ──
+    useEffect(() => {
+        if (!user) return;
+        const checkPendingOffers = async () => {
+            try {
+                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                if (!token) return;
+                const res = await fetch("/api/rides/pending-offers", {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (!res.ok) return;
+                const { offer, ride } = await res.json();
+                if (offer && ride && !incomingOfferRef.current && !activeRideRef.current) {
+                    playChimeSound();
+                    const builtOffer = buildIncomingOffer({ ride, countdownSeconds: Math.max(5, Math.floor((new Date(offer.expiresAt).getTime() - Date.now()) / 1000)) }, 45);
+                    setIncomingOffer(builtOffer);
+                    if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                    let secondsLeft = builtOffer.countdown;
+                    countdownTimerRef.current = setInterval(() => {
+                        secondsLeft -= 1;
+                        if (secondsLeft <= 0) {
+                            clearInterval(countdownTimerRef.current!);
+                            setIncomingOffer(null);
+                        } else {
+                            setIncomingOffer((prev) => prev ? { ...prev, countdown: secondsLeft } : null);
+                        }
+                    }, 1000);
+                }
+            } catch {
+                // Silently absorb — pending offers endpoint may not exist yet
+            }
+        };
+        // Small delay to let driverProfileId state settle
+        const t = setTimeout(checkPendingOffers, 1500);
+        return () => clearTimeout(t);
+    }, [user, buildIncomingOffer, playChimeSound]);
+
     // Rotating Motivational Message: Auto-rotates every 6 seconds with smooth fade transition
     useEffect(() => {
         let fadeTimeout: NodeJS.Timeout;
@@ -514,9 +551,17 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     useEffect(() => {
         if (!user) return;
 
-        const sse = new EventSource("/api/rides/stream");
+        let sse: EventSource;
+        let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+        let reconnectDelay = 1000; // start at 1s, exponential up to 30s
+        let isClosed = false;
+
+        const connect = () => {
+            if (isClosed) return;
+            sse = new EventSource("/api/rides/stream");
 
         sse.onmessage = (event) => {
+                reconnectDelay = 1000; // reset backoff on successful message
             try {
                 const payload = JSON.parse(event.data);
 
@@ -575,8 +620,9 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                     return;
                 }
 
-                // ── Incoming ride offers (only if online, approved, and wallet balance eligible) ──
-                if (!isOnline || approvalStatus !== "APPROVED" || (walletData && walletData.eligible === false)) return;
+                // ── Incoming ride offers (only if online and not explicitly rejected) ──
+                // Allow PENDING and null approval statuses so new drivers receive ride notifications
+                if (!isOnline || approvalStatus === "REJECTED") return;
 
                 if (payload.type === "RIDE_OFFER_RECEIVED") {
                     const offerData = payload.data?.ride || payload.data;
@@ -586,7 +632,10 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         targetDriverId === user.id ||
                         targetDriverId === user.driverProfileId ||
                         targetDriverId === driverProfileId ||
-                        targetDriverId === currentUser?.driverProfileId;
+                        targetDriverId === currentUser?.driverProfileId ||
+                        // Match by userId embedded in payload (from admin assignment flow)
+                        payload.data?.driverUserId === user.id ||
+                        payload.data?.ride?.driver?.userId === user.id;
 
                     if (isTargetDriver && (!activeRideRef.current || activeRideRef.current.status === "ASSIGNED" || activeRideRef.current.status === "PENDING")) {
                         playChimeSound();
@@ -631,7 +680,10 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                         payload.driverId === user.id ||
                         payload.driverId === user.driverProfileId ||
                         payload.data?.driverId === driverProfileId ||
-                        payload.data?.driver?.userId === user.id;
+                        payload.data?.driver?.userId === user.id ||
+                        // Match the driverUserId field broadcast from admin assignment
+                        payload.data?.driverUserId === user.id ||
+                        payload.data?.driverProfileId === driverProfileId;
 
                     if (isForMe && payload.data) {
                         const assignedRide = payload.data;
@@ -811,8 +863,23 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             } catch { }
         };
 
+            sse.onerror = () => {
+                sse.close();
+                if (!isClosed) {
+                    reconnectTimeout = setTimeout(() => {
+                        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+                        connect();
+                    }, reconnectDelay);
+                }
+            };
+        };
+
+        connect();
+
         return () => {
-            sse.close();
+            isClosed = true;
+            sse?.close();
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
             if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
         };
     }, [user, isOnline, approvalStatus, playChimeSound, playCancelSound, driverProfileId, currentUser]);
@@ -1832,6 +1899,16 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
                                         subtitle: activeRide.destAddress || "Dropoff Destination",
                                         type: "DESTINATION" as const,
                                     }] : []),
+                                    // Intermediate customer stops
+                                    ...(activeRide?.status === "IN_PROGRESS" && activeRide?.stops && Array.isArray(activeRide.stops) ? activeRide.stops.map((st: any, idx: number) => ({
+                                        id: `customer-stop-${st.id || idx}`,
+                                        lat: Number(st.lat),
+                                        lng: Number(st.lng),
+                                        title: `Stop ${st.sequence || idx + 1}: ${st.address}`,
+                                        subtitle: st.status === "COMPLETED" ? "Completed Stop" : "Additional Stop",
+                                        type: "STOP" as const,
+                                        order: st.sequence || idx + 1,
+                                    })) : []),
                                     ...availableRides.filter(r => r.originLat && r.originLng).map(r => ({
                                         id: `avail-${r.id}`,
                                         lat: Number(r.originLat),

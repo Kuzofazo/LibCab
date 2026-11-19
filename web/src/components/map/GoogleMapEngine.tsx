@@ -250,6 +250,12 @@ function InnerGoogleMap({
                                     <div className="absolute inset-0 rounded-full bg-blue-400 opacity-30 animate-ping" />
                                     <div className="absolute inset-[3px] rounded-full bg-blue-600 border-2 border-white shadow-md" />
                                 </div>
+                            ) : m.type === "STOP" ? (
+                                <div className="relative flex flex-col items-center justify-center cursor-pointer group">
+                                    <div className="w-6 h-6 rounded-full bg-amber-500 border-2 border-white shadow-xl flex items-center justify-center text-white font-black text-[11px] transition-transform group-hover:scale-110">
+                                        {m.order || "•"}
+                                    </div>
+                                </div>
                             ) : isPickup ? (
                                 <div className="relative flex flex-col items-center justify-center cursor-pointer group">
                                     {m.etaText && (

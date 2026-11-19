@@ -220,6 +220,14 @@ export default function LeafletMapEngine({
                             <div style="width:7px;height:7px;border-radius:1px;background:#fff;"></div>
                         </div>
                     </div>`;
+            } else if (m.type === "STOP") {
+                anchor = [12, 12];
+                iconHtml = `
+                    <div style="position:relative;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+                        <div style="width:22px;height:22px;border-radius:9999px;background:#f59e0b;border:2.5px solid #fff;box-shadow:0 4px 10px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:900;font-family:system-ui,sans-serif;">
+                            ${m.order || "•"}
+                        </div>
+                    </div>`;
             } else if (isDriver) {
                 const isAssigned = m.type === "ASSIGNED_DRIVER";
                 anchor = [17, 32];
