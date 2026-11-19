@@ -11,4 +11,5 @@ export interface Coordinates {
 export interface ILocationProvider {
     autocomplete(query: string): Promise<AutocompletePrediction[]>;
     geocode(address: string): Promise<Coordinates | null>;
+    reverseGeocode(lat: number, lng: number): Promise<string | null>;
 }

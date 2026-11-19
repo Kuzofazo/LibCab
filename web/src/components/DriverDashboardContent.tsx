@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { formatDual } from "@/utils/currency";
 import type { MapMarker } from "@/components/MapComponent";
+import { GpsFilter } from "@/lib/gpsFilter";
 
 const MOTIVATIONAL_MESSAGES = [
     "Every Ride Counts. Every Customer Matters.",
@@ -103,7 +104,9 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
     }, [myCoords]);
 
     const [gpsBroadcasting, setGpsBroadcasting] = useState(false);
-    const gpsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const gpsWatchIdRef = useRef<number | null>(null);
+    const gpsFilterRef = useRef<GpsFilter>(new GpsFilter());
+    const lastBroadcastRef = useRef<number>(0);
     const [completingTrip, setCompletingTrip] = useState(false);
     const [incomingOffer, setIncomingOffer] = useState<{
         rideId: string;
@@ -1211,65 +1214,68 @@ export default function DriverDashboardContent({ user }: DriverDashboardContentP
             try {
                 if (typeof navigator !== "undefined" && navigator?.geolocation) {
                     navigator.geolocation.getCurrentPosition((pos) => {
-                        setMyCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-                        broadcastLocation(pos.coords.latitude, pos.coords.longitude);
+                        const filtered = gpsFilterRef.current.process(pos);
+                        if (filtered) {
+                            setMyCoords({ lat: filtered.lat, lng: filtered.lng });
+                            broadcastLocation(filtered.lat, filtered.lng, filtered.speed, filtered.heading);
+                        }
                     }, () => { }, { enableHighAccuracy: true });
                 }
             } catch { }
         } else {
-            if (gpsIntervalRef.current) {
-                clearInterval(gpsIntervalRef.current);
-                gpsIntervalRef.current = null;
+            if (gpsWatchIdRef.current !== null) {
+                navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+                gpsWatchIdRef.current = null;
                 setGpsBroadcasting(false);
+                gpsFilterRef.current.reset();
             }
         }
     };
 
-    // GPS broadcast loop when online
+    // GPS broadcast loop using watchPosition for true continuous tracking
     useEffect(() => {
         if (!isOnline || typeof navigator === "undefined" || !navigator.geolocation) return;
 
-        const startBroadcast = () => {
-            setGpsBroadcasting(true);
-            const intervalMs = activeRide ? 4000 : 8000;
-            gpsIntervalRef.current = setInterval(() => {
-                try {
-                    if (typeof navigator !== "undefined" && navigator?.geolocation) {
-                        navigator.geolocation.getCurrentPosition(
-                            (pos) => {
-                                const { latitude: lat, longitude: lng, speed } = pos.coords;
-                                setMyCoords({ lat, lng });
-                                broadcastLocation(lat, lng, speed ? speed * 3.6 : 0, 0);
-                            },
-                            () => { },
-                            { enableHighAccuracy: true, timeout: 5000 }
-                        );
-                    }
-                } catch { }
-            }, intervalMs);
-        };
+        // Reset filter when starting a new online session
+        gpsFilterRef.current.reset();
+        setGpsBroadcasting(true);
 
-        // Initial position grab
-        try {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    setMyCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-                    broadcastLocation(pos.coords.latitude, pos.coords.longitude);
-                    startBroadcast();
-                },
-                () => startBroadcast(),
-                { enableHighAccuracy: true, timeout: 5000 }
-            );
-        } catch {
-            startBroadcast();
-        }
+        // Throttle broadcast: 3s during active ride, 10s when idle
+        const getBroadcastIntervalMs = () => (activeRideRef.current ? 3000 : 10000);
+
+        const watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                // Apply GPS filter — rejects inaccurate / implausible readings
+                const filtered = gpsFilterRef.current.process(pos);
+                if (!filtered) return;
+
+                setMyCoords({ lat: filtered.lat, lng: filtered.lng });
+
+                // Throttle broadcasts so we don't hammer the server
+                const now = Date.now();
+                if (now - lastBroadcastRef.current < getBroadcastIntervalMs()) return;
+                lastBroadcastRef.current = now;
+
+                broadcastLocation(filtered.lat, filtered.lng, filtered.speed, filtered.heading);
+            },
+            (err) => {
+                console.warn("Driver GPS watchPosition error:", err.message);
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 2000,  // allow cached position up to 2s old for smooth updates
+            }
+        );
+
+        gpsWatchIdRef.current = watchId;
 
         return () => {
-            if (gpsIntervalRef.current) {
-                clearInterval(gpsIntervalRef.current);
-                gpsIntervalRef.current = null;
-                setGpsBroadcasting(false);
+            if (gpsWatchIdRef.current !== null) {
+                navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+                gpsWatchIdRef.current = null;
             }
+            setGpsBroadcasting(false);
         };
     }, [isOnline, broadcastLocation]);
 

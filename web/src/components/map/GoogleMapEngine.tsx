@@ -1,10 +1,131 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { APIProvider, Map, AdvancedMarker, InfoWindow, useMap } from "@vis.gl/react-google-maps";
+import { APIProvider, Map as GoogleMap, AdvancedMarker, InfoWindow, useMap } from "@vis.gl/react-google-maps";
 import { cn } from "@/lib/utils";
 import type { MapMarker, MapRoute, MapProps } from "@/components/MapComponent";
 import Vehicle3DMarker from "@/components/map/Vehicle3DMarker";
+
+// ─── Route cache ───────────────────────────────────────────────────────────
+type LatLng = { lat: number; lng: number };
+const routeCache = new Map<string, LatLng[]>();
+
+function routeKey(origin: [number, number], dest: [number, number]): string {
+    return `${origin[0].toFixed(4)},${origin[1].toFixed(4)}-${dest[0].toFixed(4)},${dest[1].toFixed(4)}`;
+}
+
+async function fetchOSRMRoute(
+    origin: [number, number],
+    dest: [number, number]
+): Promise<LatLng[] | null> {
+    const key = routeKey(origin, dest);
+    if (routeCache.has(key)) return routeCache.get(key)!;
+
+    try {
+        const res = await fetch(
+            `https://router.project-osrm.org/route/v1/driving/${origin[1]},${origin[0]};${dest[1]},${dest[0]}?overview=full&geometries=geojson`
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data.routes?.[0]) return null;
+        const coords = data.routes[0].geometry.coordinates.map(
+            ([lng, lat]: [number, number]) => ({ lat, lng })
+        );
+        routeCache.set(key, coords);
+        return coords;
+    } catch {
+        return null;
+    }
+}
+
+// ─── Smooth driver marker animation (Google AdvancedMarker via DOM) ────────
+const ANIMATE_DURATION_MS = 1200;
+
+function animateLatLng(
+    setPos: (p: { lat: number; lng: number }) => void,
+    from: { lat: number; lng: number },
+    to: { lat: number; lng: number }
+) {
+    const start = performance.now();
+    function step(now: number) {
+        const t = Math.min((now - start) / ANIMATE_DURATION_MS, 1);
+        const ease = 1 - Math.pow(1 - t, 3);
+        setPos({
+            lat: from.lat + (to.lat - from.lat) * ease,
+            lng: from.lng + (to.lng - from.lng) * ease,
+        });
+        if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
+// ─── Single driver marker with smooth position animation ──────────────────
+function AnimatedDriverMarker({
+    marker,
+    onMarkerClick,
+    isActive,
+    onClose,
+}: {
+    marker: MapMarker;
+    onMarkerClick?: (m: MapMarker) => void;
+    isActive: boolean;
+    onClose: () => void;
+}) {
+    const [pos, setPos] = useState({ lat: marker.lat, lng: marker.lng });
+    const prevRef = useRef({ lat: marker.lat, lng: marker.lng });
+    const isAssigned = marker.type === "ASSIGNED_DRIVER";
+
+    useEffect(() => {
+        const from = prevRef.current;
+        const to = { lat: marker.lat, lng: marker.lng };
+        if (Math.abs(from.lat - to.lat) > 0.00001 || Math.abs(from.lng - to.lng) > 0.00001) {
+            animateLatLng(setPos, from, to);
+            prevRef.current = to;
+        }
+    }, [marker.lat, marker.lng]);
+
+    return (
+        <React.Fragment>
+            <AdvancedMarker
+                position={pos}
+                onClick={() => {
+                    if (onMarkerClick) onMarkerClick(marker);
+                }}
+            >
+                <Vehicle3DMarker
+                    type={marker.vehicleType}
+                    heading={marker.heading || 0}
+                    isAssigned={isAssigned}
+                    etaText={marker.etaText}
+                    rating={marker.rating}
+                    driverName={marker.title}
+                />
+            </AdvancedMarker>
+
+            {isActive && (
+                <InfoWindow position={pos} onCloseClick={onClose}>
+                    <div style={{ fontFamily: "system-ui,sans-serif", minWidth: "190px" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #e2e8f0", paddingBottom: "6px", marginBottom: "6px" }}>
+                            <b style={{ fontSize: "13px", color: "#0f172a" }}>{marker.title}</b>
+                            {marker.rating && (
+                                <span style={{ background: "#fef9c3", color: "#854d0e", fontSize: "10px", fontWeight: 800, padding: "2px 6px", borderRadius: "6px" }}>
+                                    ★ {marker.rating.toFixed(1)}
+                                </span>
+                            )}
+                        </div>
+                        {marker.subtitle && <p style={{ fontSize: "11px", color: "#475569", margin: "2px 0" }}>{marker.subtitle}</p>}
+                        {marker.licensePlate && <p style={{ fontSize: "10px", fontFamily: "monospace", color: "#64748b", margin: "3px 0" }}>🪪 {marker.licensePlate}</p>}
+                        {(marker.distanceText || marker.etaText) && (
+                            <div style={{ background: "#f0fdf4", color: "#166534", fontSize: "11px", fontWeight: 700, padding: "5px 8px", borderRadius: "8px", marginTop: "6px" }}>
+                                {marker.distanceText || ""} {marker.etaText ? `• ETA ${marker.etaText}` : ""}
+                            </div>
+                        )}
+                    </div>
+                </InfoWindow>
+            )}
+        </React.Fragment>
+    );
+}
 
 // ─── Inner map with route drawing ─────────────────────────────────────────
 function InnerGoogleMap({
@@ -19,8 +140,9 @@ function InnerGoogleMap({
     onMarkerClick?: MapProps["onMarkerClick"];
 }) {
     const map = useMap();
-    const [activeMarker, setActiveMarker] = useState<MapMarker | null>(null);
+    const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
     const polylinesRef = useRef<google.maps.Polyline[]>([]);
+    const prevRouteKeysRef = useRef<string>("");
 
     // ─── Fit bounds ─────────────────────────────────────────────────────────
     useEffect(() => {
@@ -34,60 +156,48 @@ function InnerGoogleMap({
         }
     }, [map, markers]);
 
-    // ─── Route drawing ──────────────────────────────────────────────────────
+    // ─── Route drawing (cached) ──────────────────────────────────────────────
     useEffect(() => {
         if (!map || routes.length === 0) return;
+
+        // Build a key representing all routes — only re-fetch if routes actually changed
+        const newKey = routes.map(r => routeKey(r.origin, r.destination)).join("|");
+        if (newKey === prevRouteKeysRef.current) return;
+        prevRouteKeysRef.current = newKey;
 
         // Remove old polylines
         polylinesRef.current.forEach(p => p.setMap(null));
         polylinesRef.current = [];
 
         routes.forEach(async (route) => {
-            // Primary: OSRM open-source routing (no legacy API key needed)
-            try {
-                const res = await fetch(
-                    `https://router.project-osrm.org/route/v1/driving/${route.origin[1]},${route.origin[0]};${route.destination[1]},${route.destination[0]}?overview=full&geometries=geojson`
-                );
-                const data = await res.json();
-                if (data.routes?.[0]) {
-                    const coords = data.routes[0].geometry.coordinates.map(
-                        ([lng, lat]: [number, number]) => ({ lat, lng })
-                    );
-                    const poly = new google.maps.Polyline({
-                        path: coords,
-                        map,
-                        strokeColor: route.color || "#0f172a",
-                        strokeWeight: 5,
-                        strokeOpacity: 0.9,
-                    });
-                    polylinesRef.current.push(poly);
+            const coords = await fetchOSRMRoute(route.origin, route.destination);
 
-                    if (onRouteCalculated) {
-                        const r = data.routes[0];
-                        onRouteCalculated({
-                            distance: `${(r.distance / 1000).toFixed(2)} km`,
-                            eta: `${Math.ceil(r.duration / 60)} min`,
-                            steps: r.legs?.[0]?.steps || [],
-                        });
-                    }
-                    return;
-                }
-            } catch {
-                // Fallback below
-            }
+            const path = coords || [
+                { lat: route.origin[0], lng: route.origin[1] },
+                { lat: route.destination[0], lng: route.destination[1] },
+            ];
 
-            // Fallback: straight-line polyline
             const poly = new google.maps.Polyline({
-                path: [
-                    { lat: route.origin[0], lng: route.origin[1] },
-                    { lat: route.destination[0], lng: route.destination[1] },
-                ],
+                path,
                 map,
                 strokeColor: route.color || "#0f172a",
                 strokeWeight: 5,
-                strokeOpacity: 0.85,
+                strokeOpacity: 0.9,
             });
             polylinesRef.current.push(poly);
+
+            if (onRouteCalculated && coords) {
+                let totalMetres = 0;
+                for (let i = 1; i < coords.length; i++) {
+                    const dLat = (coords[i].lat - coords[i-1].lat) * Math.PI / 180;
+                    const dLng = (coords[i].lng - coords[i-1].lng) * Math.PI / 180;
+                    const a = Math.sin(dLat/2)**2 + Math.cos(coords[i-1].lat*Math.PI/180)*Math.cos(coords[i].lat*Math.PI/180)*Math.sin(dLng/2)**2;
+                    totalMetres += 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                }
+                const distKm = totalMetres / 1000;
+                const eta = Math.ceil((distKm / 28) * 60);
+                onRouteCalculated({ distance: `${distKm.toFixed(2)} km`, eta: `${eta} min`, steps: [] });
+            }
         });
 
         return () => {
@@ -97,34 +207,50 @@ function InnerGoogleMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [map, routes]);
 
+    const driverMarkers = markers.filter(
+        m => m.type === "ASSIGNED_DRIVER" || m.type === "AVAILABLE_DRIVER" || m.type === "BUSY_DRIVER"
+    );
+    const staticMarkers = markers.filter(
+        m => m.type !== "ASSIGNED_DRIVER" && m.type !== "AVAILABLE_DRIVER" && m.type !== "BUSY_DRIVER"
+    );
+
     return (
         <>
-            {/* Render Markers */}
-            {markers.map((m) => {
-                const isDriver = m.type.includes("DRIVER");
-                const isAssigned = m.type === "ASSIGNED_DRIVER";
+            {/* Animated driver markers */}
+            {driverMarkers.map((m) => (
+                <AnimatedDriverMarker
+                    key={`driver-${m.id}`}
+                    marker={m}
+                    onMarkerClick={(mk) => {
+                        setActiveMarkerId(mk.id);
+                        if (onMarkerClick) onMarkerClick(mk);
+                    }}
+                    isActive={activeMarkerId === m.id}
+                    onClose={() => setActiveMarkerId(null)}
+                />
+            ))}
+
+            {/* Static markers: pickup, destination, my_location */}
+            {staticMarkers.map((m) => {
                 const isPickup = m.type === "PICKUP";
+                const isMyLocation = m.type === "MY_LOCATION";
 
                 return (
-                    <React.Fragment key={`${m.type}-${m.id}`}>
+                    <React.Fragment key={`static-${m.type}-${m.id}`}>
                         <AdvancedMarker
                             position={{ lat: m.lat, lng: m.lng }}
                             onClick={() => {
-                                setActiveMarker(m);
+                                setActiveMarkerId(m.id);
                                 if (onMarkerClick) onMarkerClick(m);
                             }}
                         >
-                            {isDriver ? (
-                                <Vehicle3DMarker
-                                    type={m.vehicleType}
-                                    heading={m.heading || 0}
-                                    isAssigned={isAssigned}
-                                    etaText={m.etaText}
-                                    rating={m.rating}
-                                    driverName={m.title}
-                                />
+                            {isMyLocation ? (
+                                /* Pulsing blue dot for customer's own location */
+                                <div className="relative w-5 h-5">
+                                    <div className="absolute inset-0 rounded-full bg-blue-400 opacity-30 animate-ping" />
+                                    <div className="absolute inset-[3px] rounded-full bg-blue-600 border-2 border-white shadow-md" />
+                                </div>
                             ) : isPickup ? (
-                                /* Uber/Bolt Style Black Circle Pickup Pin with ETA */
                                 <div className="relative flex flex-col items-center justify-center cursor-pointer group">
                                     {m.etaText && (
                                         <div className="absolute -top-7 bg-white text-slate-900 font-black text-[11px] px-2.5 py-0.5 rounded-full shadow-lg border border-slate-200 whitespace-nowrap flex items-center gap-1.5 z-30">
@@ -137,7 +263,6 @@ function InnerGoogleMap({
                                     </div>
                                 </div>
                             ) : (
-                                /* Clean Black Square Destination Pin */
                                 <div className="relative flex flex-col items-center justify-center cursor-pointer group">
                                     <div className="w-6 h-6 rounded-md bg-black border-2 border-white shadow-xl flex items-center justify-center transition-transform group-hover:scale-110">
                                         <div className="w-2.5 h-2.5 rounded-xs bg-white" />
@@ -146,23 +271,16 @@ function InnerGoogleMap({
                             )}
                         </AdvancedMarker>
 
-                        {/* InfoWindow popup when clicked */}
-                        {activeMarker?.id === m.id && (
+                        {activeMarkerId === m.id && (
                             <InfoWindow
                                 position={{ lat: m.lat, lng: m.lng }}
-                                onCloseClick={() => setActiveMarker(null)}
+                                onCloseClick={() => setActiveMarkerId(null)}
                             >
                                 <div style={{ fontFamily: "system-ui,sans-serif", minWidth: "190px" }}>
                                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #e2e8f0", paddingBottom: "6px", marginBottom: "6px" }}>
                                         <b style={{ fontSize: "13px", color: "#0f172a" }}>{m.title}</b>
-                                        {m.rating && (
-                                            <span style={{ background: "#fef9c3", color: "#854d0e", fontSize: "10px", fontWeight: 800, padding: "2px 6px", borderRadius: "6px" }}>
-                                                ★ {m.rating.toFixed(1)}
-                                            </span>
-                                        )}
                                     </div>
                                     {m.subtitle && <p style={{ fontSize: "11px", color: "#475569", margin: "2px 0" }}>{m.subtitle}</p>}
-                                    {m.licensePlate && <p style={{ fontSize: "10px", fontFamily: "monospace", color: "#64748b", margin: "3px 0" }}>🪪 {m.licensePlate}</p>}
                                     {(m.distanceText || m.etaText) && (
                                         <div style={{ background: "#f0fdf4", color: "#166534", fontSize: "11px", fontWeight: 700, padding: "5px 8px", borderRadius: "8px", marginTop: "6px" }}>
                                             {m.distanceText || ""} {m.etaText ? `• ETA ${m.etaText}` : ""}
@@ -200,7 +318,7 @@ export default function GoogleMapEngine({
             )}
         >
             <APIProvider apiKey={GOOGLE_KEY} libraries={["places", "geometry"]}>
-                <Map
+                <GoogleMap
                     defaultCenter={{ lat: center[0], lng: center[1] }}
                     defaultZoom={zoom}
                     mapId="africab-live-map"
@@ -220,7 +338,7 @@ export default function GoogleMapEngine({
                         onRouteCalculated={onRouteCalculated}
                         onMarkerClick={onMarkerClick}
                     />
-                </Map>
+                </GoogleMap>
             </APIProvider>
 
             {/* Attribution */}

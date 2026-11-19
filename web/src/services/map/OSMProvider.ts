@@ -43,4 +43,18 @@ export class OSMProvider implements ILocationProvider {
             return null;
         }
     }
+
+    async reverseGeocode(lat: number, lng: number): Promise<string | null> {
+        try {
+            const res = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=0`,
+                { headers: { 'Accept': 'application/json', 'User-Agent': 'AfriCab-App-Development' } }
+            );
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data?.display_name || null;
+        } catch {
+            return null;
+        }
+    }
 }

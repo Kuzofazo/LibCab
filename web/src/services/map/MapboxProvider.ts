@@ -55,4 +55,18 @@ export class MapboxProvider implements ILocationProvider {
             return null;
         }
     }
+
+    async reverseGeocode(lat: number, lng: number): Promise<string | null> {
+        if (!this.accessToken) return null;
+        try {
+            const res = await fetch(
+                `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${this.accessToken}&limit=1`
+            );
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data.features?.[0]?.place_name || null;
+        } catch {
+            return null;
+        }
+    }
 }

@@ -40,7 +40,7 @@ export interface MapMarker {
     lng: number;
     title: string;
     subtitle?: string;
-    type: "AVAILABLE_DRIVER" | "ASSIGNED_DRIVER" | "BUSY_DRIVER" | "PICKUP" | "DESTINATION" | "CUSTOMER";
+    type: "AVAILABLE_DRIVER" | "ASSIGNED_DRIVER" | "BUSY_DRIVER" | "PICKUP" | "DESTINATION" | "CUSTOMER" | "MY_LOCATION";
     vehicleType?: string;
     vehicleModel?: string;
     licensePlate?: string;

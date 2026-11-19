@@ -52,4 +52,19 @@ export class GoogleMapsProvider implements ILocationProvider {
             });
         });
     }
+
+    async reverseGeocode(lat: number, lng: number): Promise<string | null> {
+        this.init();
+        if (!this.geocoder) return null;
+
+        return new Promise((resolve) => {
+            this.geocoder?.geocode({ location: { lat, lng } }, (results, status) => {
+                if (status !== "OK" || !results || !results[0]) {
+                    resolve(null);
+                    return;
+                }
+                resolve(results[0].formatted_address || null);
+            });
+        });
+    }
 }

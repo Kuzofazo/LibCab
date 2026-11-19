@@ -4,6 +4,63 @@ import React, { useEffect, useRef, useState } from "react";
 import type { MapMarker, MapRoute, MapProps } from "@/components/MapComponent";
 import { renderVehicle3DMarkerHTML } from "@/components/map/Vehicle3DMarker";
 
+// ─── Route cache (origin+dest hash → polyline coords) ─────────────────────
+const routeCache = new Map<string, [number, number][]>();
+
+function routeKey(origin: [number, number], dest: [number, number]): string {
+    return `${origin[0].toFixed(4)},${origin[1].toFixed(4)}-${dest[0].toFixed(4)},${dest[1].toFixed(4)}`;
+}
+
+async function fetchOSRMRoute(
+    origin: [number, number],
+    dest: [number, number]
+): Promise<[number, number][] | null> {
+    const key = routeKey(origin, dest);
+    if (routeCache.has(key)) return routeCache.get(key)!;
+
+    try {
+        const res = await fetch(
+            `https://router.project-osrm.org/route/v1/driving/${origin[1]},${origin[0]};${dest[1]},${dest[0]}?overview=full&geometries=geojson`
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data.routes?.[0]) return null;
+        const coords = data.routes[0].geometry.coordinates.map(
+            ([lng, lat]: [number, number]) => [lat, lng] as [number, number]
+        );
+        routeCache.set(key, coords);
+        return coords;
+    } catch {
+        return null;
+    }
+}
+
+// ─── Smooth driver marker animation ───────────────────────────────────────
+const ANIMATE_DURATION_MS = 1200;
+
+function animateMarker(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    marker: any,
+    from: { lat: number; lng: number },
+    to: { lat: number; lng: number }
+) {
+    const start = performance.now();
+    function step(now: number) {
+        const t = Math.min((now - start) / ANIMATE_DURATION_MS, 1);
+        // Ease-out cubic
+        const ease = 1 - Math.pow(1 - t, 3);
+        const lat = from.lat + (to.lat - from.lat) * ease;
+        const lng = from.lng + (to.lng - from.lng) * ease;
+        try {
+            marker.setLatLng([lat, lng]);
+        } catch {
+            return;
+        }
+        if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
 export default function LeafletMapEngine({
     center = [6.3156, -10.8074],
     zoom = 14,
@@ -20,7 +77,9 @@ export default function LeafletMapEngine({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const leafletRef = useRef<any>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const layersRef = useRef<any[]>([]);
+    const staticLayersRef = useRef<any[]>([]); // routes + non-driver markers
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const driverMarkersRef = useRef<Map<string, any>>(new Map()); // id → Leaflet marker (for smooth animation)
     const [ready, setReady] = useState(false);
 
     // 1. Bootstrap Leaflet (dynamic import — no SSR)
@@ -60,19 +119,15 @@ export default function LeafletMapEngine({
             mapRef.current = map;
             setReady(true);
 
-            // Trigger size calculation on mount & after layout reflow
-            setTimeout(() => {
-                map.invalidateSize();
-            }, 100);
-            setTimeout(() => {
-                map.invalidateSize();
-            }, 500);
+            setTimeout(() => { map.invalidateSize(); }, 100);
+            setTimeout(() => { map.invalidateSize(); }, 500);
         });
 
         return () => {
             if (mapRef.current) {
                 mapRef.current.remove();
                 mapRef.current = null;
+                driverMarkersRef.current.clear();
                 setReady(false);
             }
         };
@@ -94,67 +149,78 @@ export default function LeafletMapEngine({
         if (!mapRef.current || !ready || !leafletRef.current) return;
         const L = leafletRef.current;
 
-        // Clear existing markers & polylines
-        layersRef.current.forEach((layer) => {
-            try {
-                mapRef.current?.removeLayer(layer);
-            } catch {}
+        // ── Clear static layers (routes + non-driver markers) ──────────────
+        staticLayersRef.current.forEach((layer) => {
+            try { mapRef.current?.removeLayer(layer); } catch {}
         });
-        layersRef.current = [];
+        staticLayersRef.current = [];
 
         const bounds: [number, number][] = [];
 
-        // ─── Markers with 3D Vehicles & Uber-Style Pins ───────────────────────────
+        // ── Separate driver markers from static markers ───────────────────
+        const driverMarkerIds = new Set(
+            markers
+                .filter(m => m.type === "ASSIGNED_DRIVER" || m.type === "AVAILABLE_DRIVER" || m.type === "BUSY_DRIVER")
+                .map(m => m.id)
+        );
+
+        // Remove driver markers that are no longer in the list
+        driverMarkersRef.current.forEach((leafletMarker, id) => {
+            if (!driverMarkerIds.has(id)) {
+                try { mapRef.current?.removeLayer(leafletMarker); } catch {}
+                driverMarkersRef.current.delete(id);
+            }
+        });
+
+        // ── Render all markers ────────────────────────────────────────────
         markers.forEach((m) => {
             if (!m.lat || !m.lng) return;
             bounds.push([m.lat, m.lng]);
 
+            const isDriver = m.type === "ASSIGNED_DRIVER" || m.type === "AVAILABLE_DRIVER" || m.type === "BUSY_DRIVER";
+
             let iconHtml = "";
             let anchor: [number, number] = [17, 32];
 
-            if (m.type === "PICKUP") {
+            if (m.type === "MY_LOCATION") {
+                anchor = [10, 10];
+                iconHtml = `
+                    <div style="position:relative;width:20px;height:20px;">
+                        <div style="position:absolute;inset:0;border-radius:9999px;background:rgba(37,99,235,0.2);animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite;"></div>
+                        <div style="position:absolute;inset:3px;border-radius:9999px;background:#2563eb;border:2px solid #fff;box-shadow:0 2px 8px rgba(37,99,235,0.5);"></div>
+                    </div>`;
+            } else if (m.type === "PICKUP") {
                 anchor = [12, 12];
                 const etaPill = m.etaText ? `
                     <div style="
-                        position: absolute;
-                        top: -30px;
-                        left: 50%;
+                        position: absolute; top: -30px; left: 50%;
                         transform: translateX(-50%);
-                        background: #ffffff;
-                        color: #0f172a;
-                        font-size: 11px;
-                        font-weight: 900;
-                        padding: 3px 8px;
-                        border-radius: 9999px;
+                        background: #ffffff; color: #0f172a;
+                        font-size: 11px; font-weight: 900;
+                        padding: 3px 8px; border-radius: 9999px;
                         box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-                        white-space: nowrap;
-                        display: flex;
-                        align-items: center;
-                        gap: 4px;
-                        border: 1px solid rgba(0,0,0,0.08);
-                        z-index: 100;
+                        white-space: nowrap; display: flex; align-items: center; gap: 4px;
+                        border: 1px solid rgba(0,0,0,0.08); z-index: 100;
                     ">
-                        <span style="display: inline-block; width: 6px; height: 6px; border-radius: 9999px; background: #22c55e;"></span>
+                        <span style="display:inline-block;width:6px;height:6px;border-radius:9999px;background:#22c55e;"></span>
                         ${m.etaText}
                     </div>` : "";
-
                 iconHtml = `
-                    <div style="position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                    <div style="position:relative;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
                         ${etaPill}
-                        <div style="width: 22px; height: 22px; border-radius: 9999px; background: #000; border: 2.5px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center;">
-                            <div style="width: 8px; height: 8px; border-radius: 9999px; background: #fff;"></div>
+                        <div style="width:22px;height:22px;border-radius:9999px;background:#000;border:2.5px solid #fff;box-shadow:0 4px 10px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;">
+                            <div style="width:8px;height:8px;border-radius:9999px;background:#fff;"></div>
                         </div>
                     </div>`;
             } else if (m.type === "DESTINATION") {
                 anchor = [12, 12];
                 iconHtml = `
-                    <div style="position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
-                        <div style="width: 20px; height: 20px; border-radius: 5px; background: #000; border: 2.5px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center;">
-                            <div style="width: 7px; height: 7px; border-radius: 1px; background: #fff;"></div>
+                    <div style="position:relative;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+                        <div style="width:20px;height:20px;border-radius:5px;background:#000;border:2.5px solid #fff;box-shadow:0 4px 10px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;">
+                            <div style="width:7px;height:7px;border-radius:1px;background:#fff;"></div>
                         </div>
                     </div>`;
-            } else {
-                // 3D Top-Down Taxi / Vehicle Marker matching reference photo
+            } else if (isDriver) {
                 const isAssigned = m.type === "ASSIGNED_DRIVER";
                 anchor = [17, 32];
                 iconHtml = renderVehicle3DMarkerHTML({
@@ -167,10 +233,6 @@ export default function LeafletMapEngine({
                 });
             }
 
-            const divIcon = L.divIcon({ html: iconHtml, className: "", iconAnchor: anchor });
-            const marker = L.marker([m.lat, m.lng], { icon: divIcon });
-
-            // Popup
             const popupContent = `
                 <div style="font-family:system-ui,sans-serif;min-width:190px">
                     <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e2e8f0;padding-bottom:6px;margin-bottom:6px">
@@ -182,55 +244,72 @@ export default function LeafletMapEngine({
                     ${m.distanceText || m.etaText ? `<div style="background:#f0fdf4;color:#166534;font-size:11px;font-weight:700;padding:5px 8px;border-radius:8px;margin-top:6px">${m.distanceText || ""} ${m.etaText ? `• ETA ${m.etaText}` : ""}</div>` : ""}
                 </div>`;
 
-            marker.bindPopup(popupContent, { maxWidth: 240, closeButton: true });
-            marker.on("click", () => { if (onMarkerClick) onMarkerClick(m); });
-            marker.addTo(mapRef.current);
-            layersRef.current.push(marker);
+            if (isDriver) {
+                // ── Smooth-animate existing driver markers ────────────────
+                const existing = driverMarkersRef.current.get(m.id);
+                if (existing) {
+                    const prevLatLng = existing.getLatLng();
+                    const from = { lat: prevLatLng.lat, lng: prevLatLng.lng };
+                    const to = { lat: m.lat, lng: m.lng };
+                    // Only animate if position actually changed
+                    if (Math.abs(from.lat - to.lat) > 0.00001 || Math.abs(from.lng - to.lng) > 0.00001) {
+                        animateMarker(existing, from, to);
+                    }
+                    // Update icon (heading may have changed)
+                    const newIcon = L.divIcon({ html: iconHtml, className: "", iconAnchor: anchor });
+                    existing.setIcon(newIcon);
+                } else {
+                    // Create new driver marker
+                    const divIcon = L.divIcon({ html: iconHtml, className: "", iconAnchor: anchor });
+                    const marker = L.marker([m.lat, m.lng], { icon: divIcon });
+                    marker.bindPopup(popupContent, { maxWidth: 240, closeButton: true });
+                    marker.on("click", () => { if (onMarkerClick) onMarkerClick(m); });
+                    marker.addTo(mapRef.current);
+                    driverMarkersRef.current.set(m.id, marker);
+                }
+            } else {
+                // Static marker (pickup, destination, my location)
+                const divIcon = L.divIcon({ html: iconHtml, className: "", iconAnchor: anchor });
+                const marker = L.marker([m.lat, m.lng], { icon: divIcon });
+                marker.bindPopup(popupContent, { maxWidth: 240, closeButton: true });
+                marker.on("click", () => { if (onMarkerClick) onMarkerClick(m); });
+                marker.addTo(mapRef.current);
+                staticLayersRef.current.push(marker);
+            }
         });
 
-        // ─── Routes via OSRM ──────────────────────────────────────────────────
+        // ── Routes via OSRM (cached) ───────────────────────────────────────
         if (routes && routes.length > 0) {
             routes.forEach((route) => {
                 if (!route.origin || !route.destination) return;
                 bounds.push(route.origin);
                 bounds.push(route.destination);
 
-                fetch(
-                    `https://router.project-osrm.org/route/v1/driving/${route.origin[1]},${route.origin[0]};${route.destination[1]},${route.destination[0]}?overview=full&geometries=geojson`
-                )
-                    .then((res) => res.json())
-                    .then((data) => {
+                fetchOSRMRoute(route.origin, route.destination)
+                    .then((coords) => {
                         if (!mapRef.current) return;
-                        if (data.routes?.[0]) {
-                            const coords = data.routes[0].geometry.coordinates.map(
-                                ([lng, lat]: [number, number]) => [lat, lng] as [number, number]
-                            );
-                            // Sleek bold dark navy / black route line
-                            const poly = L.polyline(coords, {
-                                color: route.color || "#0f172a",
-                                weight: 5,
-                                opacity: 0.9,
-                                lineJoin: "round",
-                                lineCap: "round",
-                            }).addTo(mapRef.current);
-                            layersRef.current.push(poly);
+                        const lineCoords = coords || [route.origin, route.destination];
+                        const poly = L.polyline(lineCoords, {
+                            color: route.color || "#0f172a",
+                            weight: 5,
+                            opacity: 0.9,
+                            lineJoin: "round",
+                            lineCap: "round",
+                        }).addTo(mapRef.current);
+                        staticLayersRef.current.push(poly);
 
-                            if (onRouteCalculated) {
-                                const r = data.routes[0];
-                                onRouteCalculated({
-                                    distance: `${(r.distance / 1000).toFixed(2)} km`,
-                                    eta: `${Math.ceil(r.duration / 60)} min`,
-                                    steps: r.legs?.[0]?.steps || [],
-                                });
+                        if (onRouteCalculated && coords) {
+                            // Approximate distance from polyline points
+                            let totalMetres = 0;
+                            for (let i = 1; i < coords.length; i++) {
+                                const dLat = (coords[i][0] - coords[i-1][0]) * Math.PI / 180;
+                                const dLng = (coords[i][1] - coords[i-1][1]) * Math.PI / 180;
+                                const a = Math.sin(dLat/2)**2 + Math.cos(coords[i-1][0]*Math.PI/180)*Math.cos(coords[i][0]*Math.PI/180)*Math.sin(dLng/2)**2;
+                                totalMetres += 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
                             }
-                        } else {
-                            // Fallback straight line
-                            const poly = L.polyline([route.origin, route.destination], {
-                                color: route.color || "#0f172a",
-                                weight: 5,
-                                opacity: 0.85,
-                            }).addTo(mapRef.current);
-                            layersRef.current.push(poly);
+                            const distKm = totalMetres / 1000;
+                            const eta = Math.ceil((distKm / 28) * 60);
+                            onRouteCalculated({ distance: `${distKm.toFixed(2)} km`, eta: `${eta} min`, steps: [] });
                         }
                     })
                     .catch(() => {
@@ -240,7 +319,7 @@ export default function LeafletMapEngine({
                             weight: 5,
                             opacity: 0.85,
                         }).addTo(mapRef.current);
-                        layersRef.current.push(poly);
+                        staticLayersRef.current.push(poly);
                     });
             });
         }

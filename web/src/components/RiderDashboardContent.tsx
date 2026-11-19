@@ -4,19 +4,19 @@ import React, { useEffect, useState, useCallback } from "react";
 import Image from "next/image";
 import AnnouncementFeed from "@/components/AnnouncementFeed";
 import RideReceipt from "@/components/RideReceipt";
-import { 
-    MapPin, 
-    Navigation, 
-    Star, 
-    Phone, 
+import {
+    MapPin,
+    Navigation,
+    Star,
+    Phone,
     MessageSquare,
-    Plus, 
+    Plus,
     Edit2,
     SlidersHorizontal,
-    Share2, 
-    Check, 
-    RefreshCw, 
-    UserCheck, 
+    Share2,
+    Check,
+    RefreshCw,
+    UserCheck,
     CreditCard,
     Smartphone,
     X,
@@ -109,7 +109,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     const [serviceMode, setServiceMode] = useState<"Transport" | "Taxi" | "Delivery">("Taxi");
     const [selectedTier, setSelectedTier] = useState<"Standard" | "Comfort" | "Business">("Standard");
     const [shareLocation, setShareLocation] = useState(true);
-    
+
     const [bookingData, setBookingData] = useState({
         pickup: "Current Location (Detecting GPS...)",
         destination: "1417 West End Ave, Monrovia",
@@ -123,11 +123,11 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     const [customerPickupGps, setCustomerPickupGps] = useState<{ lat: number; lng: number } | null>(null);
 
     const [fareEstimate, setFareEstimate] = useState(27.00);
-    const [routeData, setRouteData] = useState<{distance: string, eta: string} | null>({
+    const [routeData, setRouteData] = useState<{ distance: string, eta: string } | null>({
         distance: "4.8 km",
         eta: "19 min"
     });
-    
+
     const [ratingSubmitted, setRatingSubmitted] = useState(false);
     const [isSosModalOpen, setIsSosModalOpen] = useState(false);
     const [sosLoading, setSosLoading] = useState(false);
@@ -192,6 +192,14 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     const activeRideIdRef = React.useRef<string | undefined>(undefined);
     const userIdRef = React.useRef<string | undefined>(user?.id);
 
+    // ── Live driver position state (separate from activeRide to avoid re-renders) ──
+    const [liveDriverPos, setLiveDriverPos] = useState<{
+        lat: number; lng: number; heading: number; speed: number;
+    } | null>(null);
+    const liveDriverPosRef = React.useRef<typeof liveDriverPos>(null);
+    const sseLastEventRef = React.useRef<number>(0);
+
+    useEffect(() => { liveDriverPosRef.current = liveDriverPos; }, [liveDriverPos]);
     useEffect(() => { userCoordinatesRef.current = userCoordinates; }, [userCoordinates]);
     useEffect(() => { activeRideIdRef.current = activeRide?.id; }, [activeRide?.id]);
     useEffect(() => { userIdRef.current = user?.id; }, [user?.id]);
@@ -220,8 +228,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             setLocationErrorMessage(null);
 
             setBookingData((prev) => {
-                const isDefaultOrPlaceholder = !prev.pickup || 
-                    prev.pickup === "2578 Bergen Blvd, Sinkor" || 
+                const isDefaultOrPlaceholder = !prev.pickup ||
+                    prev.pickup === "2578 Bergen Blvd, Sinkor" ||
                     prev.pickup.includes("Detecting") ||
                     isAuto;
                 if (isDefaultOrPlaceholder) {
@@ -305,65 +313,135 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         return () => clearInterval(interval);
     }, [userCoordinates, searchRadiusKm, fetchNearbyDrivers]);
 
-    // 3. Real-Time SSE Stream
+    // 3. Real-Time SSE Stream — with reconnection + fallback polling
     useEffect(() => {
         let eventSource: EventSource | null = null;
-        try {
-            eventSource = new EventSource("/api/rides/stream");
+        let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+        let reconnectAttempts = 0;
+        let destroyed = false;
 
-            eventSource.onmessage = (event) => {
-                try {
-                    const parsed = JSON.parse(event.data);
-                    const { type, data, rideId: eventRideId } = parsed;
+        const connect = () => {
+            if (destroyed) return;
+            try {
+                eventSource = new EventSource("/api/rides/stream");
 
-                    if (type === "LOCATION_UPDATED" && data) {
-                        setActiveRide((prev: any) => {
-                            if (prev && (prev.driverId === data.driverId || prev.driver?.id === data.driverId || prev.driver?.userId === data.userId || prev.driverId === data.driverProfileId)) {
-                                return {
-                                    ...prev,
-                                    driver: {
-                                        ...prev.driver,
-                                        currentLat: data.lat,
-                                        currentLng: data.lng,
-                                        speed: data.speed,
-                                        heading: data.heading,
-                                    }
-                                };
-                            }
-                            return prev;
-                        });
-                    }
+                eventSource.onopen = () => {
+                    reconnectAttempts = 0;
+                };
 
-                    if (type === "RIDE_CANCELLED") {
-                        const myId = userIdRef.current;
-                        const myRideId = activeRideIdRef.current;
-                        if (data && (data.riderId === myId || data.id === myRideId || eventRideId === myRideId)) {
-                            setActiveRide(null);
-                            prevRideRef.current = null;
-                            try { localStorage.removeItem("africab_active_ride_id"); } catch {}
-                            fetchRides();
+                eventSource.onmessage = (event) => {
+                    try {
+                        const parsed = JSON.parse(event.data);
+                        const { type, data, rideId: eventRideId } = parsed;
+
+                        if (type === "LOCATION_UPDATED" && data) {
+                            sseLastEventRef.current = Date.now();
+                            const driverId = data.driverId;
+                            setActiveRide((prev: any) => {
+                                if (prev && (prev.driverId === driverId || prev.driver?.id === driverId || prev.driver?.userId === data.userId || prev.driverId === data.driverProfileId)) {
+                                    // Update live position state for smooth map animation
+                                    setLiveDriverPos({
+                                        lat: data.lat,
+                                        lng: data.lng,
+                                        heading: data.heading ?? 0,
+                                        speed: data.speed ?? 0,
+                                    });
+                                    return {
+                                        ...prev,
+                                        driver: {
+                                            ...prev.driver,
+                                            currentLat: data.lat,
+                                            currentLng: data.lng,
+                                            speed: data.speed,
+                                            heading: data.heading,
+                                        }
+                                    };
+                                }
+                                return prev;
+                            });
                         }
-                    } else if (["RIDE_ACCEPTED", "DRIVER_ARRIVED", "RIDE_UPDATED", "DRIVER_ASSIGNED", "RIDE_STARTED", "RIDE_COMPLETED"].includes(type)) {
-                        const myId = userIdRef.current;
-                        const myRideId = activeRideIdRef.current;
-                        if (data && (data.riderId === myId || data.id === myRideId || eventRideId === myRideId)) {
-                            if (data.status === "CANCELLED") {
+
+                        if (type === "RIDE_CANCELLED") {
+                            const myId = userIdRef.current;
+                            const myRideId = activeRideIdRef.current;
+                            if (data && (data.riderId === myId || data.id === myRideId || eventRideId === myRideId)) {
                                 setActiveRide(null);
+                                setLiveDriverPos(null);
                                 prevRideRef.current = null;
-                                try { localStorage.removeItem("africab_active_ride_id"); } catch {}
+                                try { localStorage.removeItem("africab_active_ride_id"); } catch { }
                                 fetchRides();
-                            } else {
-                                setActiveRide(data);
+                            }
+                        } else if (["RIDE_ACCEPTED", "DRIVER_ARRIVED", "RIDE_UPDATED", "DRIVER_ASSIGNED", "RIDE_STARTED", "RIDE_COMPLETED"].includes(type)) {
+                            const myId = userIdRef.current;
+                            const myRideId = activeRideIdRef.current;
+                            if (data && (data.riderId === myId || data.id === myRideId || eventRideId === myRideId)) {
+                                if (data.status === "CANCELLED") {
+                                    setActiveRide(null);
+                                    setLiveDriverPos(null);
+                                    prevRideRef.current = null;
+                                    try { localStorage.removeItem("africab_active_ride_id"); } catch { }
+                                    fetchRides();
+                                } else {
+                                    setActiveRide(data);
+                                    // Seed liveDriverPos from ride data when ride state changes
+                                    if (data.driver?.currentLat && data.driver?.currentLng) {
+                                        setLiveDriverPos({
+                                            lat: data.driver.currentLat,
+                                            lng: data.driver.currentLng,
+                                            heading: data.driver.heading ?? 0,
+                                            speed: data.driver.speed ?? 0,
+                                        });
+                                    }
+                                }
                             }
                         }
+                    } catch { }
+                };
+
+                eventSource.onerror = () => {
+                    eventSource?.close();
+                    if (!destroyed) {
+                        // Exponential backoff: 2s, 4s, 8s, max 30s
+                        const delay = Math.min(2000 * Math.pow(2, reconnectAttempts), 30000);
+                        reconnectAttempts++;
+                        reconnectTimeout = setTimeout(connect, delay);
                     }
-                } catch {}
-            };
-        } catch {}
+                };
+            } catch { }
+        };
+
+        connect();
+
+        // ── Fallback polling: if SSE hasn't had a LOCATION_UPDATED in 15s, poll /api/driver/live ──
+        const fallbackInterval = setInterval(() => {
+            const rideId = activeRideIdRef.current;
+            if (!rideId) return;
+            if (Date.now() - sseLastEventRef.current < 15000) return; // SSE is live
+
+            fetch(`/api/driver/live?rideId=${rideId}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(result => {
+                    if (!result?.driver?.lat || !result?.driver?.lng) return;
+                    const { lat, lng, heading, speed } = result.driver;
+                    setLiveDriverPos({ lat, lng, heading: heading ?? 0, speed: speed ?? 0 });
+                    setActiveRide((prev: any) => {
+                        if (!prev) return prev;
+                        return {
+                            ...prev,
+                            driver: { ...prev.driver, currentLat: lat, currentLng: lng, heading, speed }
+                        };
+                    });
+                })
+                .catch(() => { });
+        }, 8000);
 
         return () => {
+            destroyed = true;
             if (eventSource) eventSource.close();
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            clearInterval(fallbackInterval);
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleTriggerSOS = async () => {
@@ -424,7 +502,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         return locationProvider.geocode(address);
     };
 
-    const handleRouteCalculated = (data: {distance: string, eta: string}) => {
+    const handleRouteCalculated = (data: { distance: string, eta: string }) => {
         setRouteData(data);
     };
 
@@ -465,10 +543,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
                 if (myActive) {
                     // Persist active ride ID so page refresh can restore it
-                    try { localStorage.setItem("africab_active_ride_id", myActive.id); } catch {}
+                    try { localStorage.setItem("africab_active_ride_id", myActive.id); } catch { }
                 } else {
                     // If nothing active, clear the stored key (ride completed / truly gone)
-                    try { localStorage.removeItem("africab_active_ride_id"); } catch {}
+                    try { localStorage.removeItem("africab_active_ride_id"); } catch { }
                 }
 
                 if (myActive && myActive.status === "COMPLETED" && (!activeRide || activeRide.status !== "COMPLETED")) {
@@ -478,6 +556,20 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 if (rideChanged(prevRideRef.current, myActive)) {
                     prevRideRef.current = myActive;
                     setActiveRide(myActive);
+                    // Seed live driver position when ride is freshly loaded
+                    if (myActive?.driver?.currentLat && myActive?.driver?.currentLng) {
+                        setLiveDriverPos(prev => {
+                            // Don't overwrite if SSE already gave us a newer position
+                            if (prev) return prev;
+                            return {
+                                lat: myActive.driver.currentLat,
+                                lng: myActive.driver.currentLng,
+                                heading: myActive.driver.heading ?? 0,
+                                speed: myActive.driver.speed ?? 0,
+                            };
+                        });
+                    }
+                    if (!myActive) setLiveDriverPos(null);
                 }
             }
         } catch (error) {
@@ -632,7 +724,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         }
 
         setBookingLoading(true);
-        
+
         try {
             // Determine accurate customer pickup GPS coordinates
             let originLat = userCoordinates.lat;
@@ -667,7 +759,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
             const res = await fetch("/api/rides", {
                 method: "POST",
-                headers: { 
+                headers: {
                     "Content-Type": "application/json",
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 },
@@ -704,7 +796,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 const newRide = await res.json();
                 setActiveRide(newRide);
                 // Persist so page refresh doesn't lose the active ride
-                try { if (newRide?.id) localStorage.setItem("africab_active_ride_id", newRide.id); } catch {}
+                try { if (newRide?.id) localStorage.setItem("africab_active_ride_id", newRide.id); } catch { }
             } else {
                 const error = await res.json();
                 try {
@@ -730,10 +822,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                     if (guestRes.ok) {
                         const guestRide = await guestRes.json();
                         setActiveRide(guestRide);
-                        try { if (guestRide?.id) localStorage.setItem("africab_active_ride_id", guestRide.id); } catch {}
+                        try { if (guestRide?.id) localStorage.setItem("africab_active_ride_id", guestRide.id); } catch { }
                         return;
                     }
-                } catch {}
+                } catch { }
                 alert(error.error || "Failed to book ride");
             }
         } catch (error: any) {
@@ -750,11 +842,11 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
             const res = await fetch(`/api/rides/${activeRide.id}/cancel`, {
                 method: "POST",
-                headers: { 
+                headers: {
                     "Content-Type": "application/json",
                     ...(token ? { "Authorization": `Bearer ${token}` } : {})
                 },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     reason: "Cancelled by customer",
                     cancelledBy: "RIDER"
                 })
@@ -762,19 +854,20 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
             if (res.ok) {
                 setActiveRide(null);
+                setLiveDriverPos(null);
                 prevRideRef.current = null;
-                try { localStorage.removeItem("africab_active_ride_id"); } catch {}
+                try { localStorage.removeItem("africab_active_ride_id"); } catch { }
                 fetchRides();
             } else {
                 // Fallback to PATCH /api/rides
                 const patchRes = await fetch("/api/rides", {
                     method: "PATCH",
-                    headers: { 
+                    headers: {
                         "Content-Type": "application/json",
                         ...(token ? { "Authorization": `Bearer ${token}` } : {})
                     },
-                    body: JSON.stringify({ 
-                        id: activeRide.id, 
+                    body: JSON.stringify({
+                        id: activeRide.id,
                         status: "CANCELLED",
                         cancelledBy: "RIDER",
                         reason: "Cancelled by customer"
@@ -782,8 +875,9 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                 });
                 if (patchRes.ok) {
                     setActiveRide(null);
+                    setLiveDriverPos(null);
                     prevRideRef.current = null;
-                    try { localStorage.removeItem("africab_active_ride_id"); } catch {}
+                    try { localStorage.removeItem("africab_active_ride_id"); } catch { }
                     fetchRides();
                 }
             }
@@ -802,17 +896,22 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
     // Construct Markers for Map
     const mapMarkers: any[] = [];
     if (activeRide) {
-        if (activeRide.driver?.currentLat && activeRide.driver?.currentLng) {
+        // Use live position from SSE/polling if available; fall back to ride object
+        const driverLat = liveDriverPos?.lat || activeRide.driver?.currentLat;
+        const driverLng = liveDriverPos?.lng || activeRide.driver?.currentLng;
+        const driverHeading = liveDriverPos?.heading ?? activeRide.driver?.heading ?? 0;
+
+        if (driverLat && driverLng) {
             mapMarkers.push({
                 id: "assigned_driver",
-                lat: activeRide.driver.currentLat,
-                lng: activeRide.driver.currentLng,
-                title: activeRide.driver.user?.name || "Assigned Driver",
+                lat: driverLat,
+                lng: driverLng,
+                title: activeRide.driver?.user?.name || activeRide.driver?.name || "Assigned Driver",
                 subtitle: activeRide.status === "ARRIVED" ? "Driver Arrived" : "Driver En Route",
                 type: "ASSIGNED_DRIVER",
-                vehicleType: activeRide.driver.vehicleType || "Car",
-                heading: activeRide.driver.heading || 0,
-                rating: activeRide.driver.rating || 4.9,
+                vehicleType: activeRide.driver?.vehicleType || "Car",
+                heading: driverHeading,
+                rating: activeRide.driver?.rating || 4.9,
                 etaText: activeRide.eta ? `${activeRide.eta} min` : undefined,
             });
         }
@@ -864,28 +963,30 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
         });
     }
 
-    // Dynamic driver distance & ETA calculation
-    const driverNav = (activeRide && activeRide.driver?.currentLat && activeRide.driver?.currentLng)
+    // Dynamic driver distance & ETA calculation — uses live position first
+    const driverCurrentLat = liveDriverPos?.lat || activeRide?.driver?.currentLat;
+    const driverCurrentLng = liveDriverPos?.lng || activeRide?.driver?.currentLng;
+    const driverNav = (activeRide && driverCurrentLat && driverCurrentLng)
         ? (activeRide.status === "IN_PROGRESS"
-            ? getDistanceAndEta(activeRide.driver.currentLat, activeRide.driver.currentLng, activeRide.destLat, activeRide.destLng)
-            : getDistanceAndEta(activeRide.driver.currentLat, activeRide.driver.currentLng, activeRide.originLat, activeRide.originLng))
+            ? getDistanceAndEta(driverCurrentLat, driverCurrentLng, activeRide.destLat, activeRide.destLng)
+            : getDistanceAndEta(driverCurrentLat, driverCurrentLng, activeRide.originLat, activeRide.originLng))
         : null;
 
     // Construct Routes
     const mapRoutes: any[] = [];
     if (activeRide) {
-        if ((activeRide.status === "ACCEPTED" || activeRide.status === "EN_ROUTE") && activeRide.driver?.currentLat && activeRide.driver?.currentLng) {
+        if ((activeRide.status === "ACCEPTED" || activeRide.status === "EN_ROUTE") && driverCurrentLat && driverCurrentLng) {
             mapRoutes.push({
                 id: "driver-to-pickup-route",
-                origin: [activeRide.driver.currentLat, activeRide.driver.currentLng] as [number, number],
+                origin: [driverCurrentLat, driverCurrentLng] as [number, number],
                 destination: [Number(activeRide.originLat) || userCoordinates.lat, Number(activeRide.originLng) || userCoordinates.lng] as [number, number],
                 color: "#059669",
             });
         }
-        if (activeRide.status === "IN_PROGRESS" && activeRide.driver?.currentLat && activeRide.driver?.currentLng) {
+        if (activeRide.status === "IN_PROGRESS" && driverCurrentLat && driverCurrentLng) {
             mapRoutes.push({
                 id: "driver-to-dest-route",
-                origin: [activeRide.driver.currentLat, activeRide.driver.currentLng] as [number, number],
+                origin: [driverCurrentLat, driverCurrentLng] as [number, number],
                 destination: [Number(activeRide.destLat) || 6.3000, Number(activeRide.destLng) || -10.7900] as [number, number],
                 color: "#2563eb",
             });
@@ -953,7 +1054,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
             <main className="flex-1 relative flex flex-col md:flex-row min-h-[calc(100vh-65px)]">
                 {/* Left/Main Side: Interactive Map Visual */}
                 <div className="flex-1 w-full h-[380px] md:h-full md:min-h-[calc(100vh-65px)] relative z-0 bg-slate-100">
-                    <Map 
+                    <Map
                         fullScreen={false}
                         center={activeRide ? [Number(activeRide.originLat) || userCoordinates.lat, Number(activeRide.originLng) || userCoordinates.lng] : [userCoordinates.lat, userCoordinates.lng]}
                         zoom={13}
@@ -976,28 +1077,28 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
 
                 {/* Right Side: Clean White Bottom/Side Sheet (Exact Design from Reference Photos) */}
                 <div className="w-full md:w-[480px] lg:w-[520px] bg-white border-t md:border-t-0 md:border-l border-slate-200 z-10 flex flex-col justify-between shadow-2xl p-5 sm:p-7 overflow-y-auto">
-                    
-                {/* CASE 1: Ride Completed -> Show Official Receipt as Full-Screen Modal */}
-                {activeRide && activeRide.status === "COMPLETED" && (
-                    <div
-                        className="fixed inset-0 z-[300] bg-slate-900/70 backdrop-blur-sm overflow-y-auto flex"
-                        onClick={(e) => { if (e.target === e.currentTarget) setActiveRide(null); }}
-                    >
-                        <div className="w-full max-w-xl mx-auto my-6 px-4">
-                            <RideReceipt
-                                ride={activeRide}
-                                role="CUSTOMER"
-                                onClose={() => setActiveRide(null)}
-                                onSubmitRating={handleSubmitRating}
-                                ratingSubmitted={ratingSubmitted}
-                                onReportLostItem={(r) => {
-                                    setLostItemRide(r);
-                                    setIsLostItemModalOpen(true);
-                                }}
-                            />
+
+                    {/* CASE 1: Ride Completed -> Show Official Receipt as Full-Screen Modal */}
+                    {activeRide && activeRide.status === "COMPLETED" && (
+                        <div
+                            className="fixed inset-0 z-[300] bg-slate-900/70 backdrop-blur-sm overflow-y-auto flex"
+                            onClick={(e) => { if (e.target === e.currentTarget) setActiveRide(null); }}
+                        >
+                            <div className="w-full max-w-xl mx-auto my-6 px-4">
+                                <RideReceipt
+                                    ride={activeRide}
+                                    role="CUSTOMER"
+                                    onClose={() => setActiveRide(null)}
+                                    onSubmitRating={handleSubmitRating}
+                                    ratingSubmitted={ratingSubmitted}
+                                    onReportLostItem={(r) => {
+                                        setLostItemRide(r);
+                                        setIsLostItemModalOpen(true);
+                                    }}
+                                />
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
 
                     {/* CASE 2: Active Ride Tracking */}
                     {activeRide && activeRide.status !== "COMPLETED" && (
@@ -1264,9 +1365,8 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-[10px] font-bold text-slate-400 uppercase">Stop {st.sequence}</span>
-                                                    <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                                                        st.status === "COMPLETED" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
-                                                    }`}>
+                                                    <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${st.status === "COMPLETED" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
+                                                        }`}>
                                                         {st.status}
                                                     </span>
                                                 </div>
@@ -1503,7 +1603,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                         <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${customerPickupGps ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-800"}`}>
                                             <MapPin size={14} />
                                         </div>
-                                        <input 
+                                        <input
                                             type="text"
                                             value={bookingData.pickup}
                                             onChange={(e) => {
@@ -1520,11 +1620,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                         <button
                                             type="button"
                                             onClick={() => requestCurrentLocation(false)}
-                                            className={`text-[10px] font-bold px-2 py-1 rounded-md border shadow-xs flex items-center gap-1 transition-all cursor-pointer ${
-                                                customerPickupGps 
-                                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300" 
+                                            className={`text-[10px] font-bold px-2 py-1 rounded-md border shadow-xs flex items-center gap-1 transition-all cursor-pointer ${customerPickupGps
+                                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300"
                                                     : "bg-white text-slate-700 hover:text-slate-900 border-slate-200"
-                                            }`}
+                                                }`}
                                             title="Detect and lock current device GPS location"
                                         >
                                             <LocateFixed size={12} className={locationLoading ? "animate-spin text-amber-500" : customerPickupGps ? "text-emerald-600" : "text-slate-500"} />
@@ -1580,7 +1679,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                         <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center shrink-0">
                                             <Navigation size={12} className="transform rotate-45" />
                                         </div>
-                                        <input 
+                                        <input
                                             type="text"
                                             value={bookingData.destination}
                                             onChange={(e) => setBookingData({ ...bookingData, destination: e.target.value })}
@@ -1588,7 +1687,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                             className="flex-1 bg-transparent font-bold text-sm text-slate-900 outline-none placeholder:text-slate-400"
                                         />
                                     </div>
-                                    
+
                                     <div className="flex items-center gap-2 shrink-0">
                                         <span className="text-xs font-bold text-slate-500">{routeData?.eta || "19 min"}</span>
                                         <button
@@ -1621,7 +1720,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                         )}
                                     >
                                         <p className="font-black text-xs">Standard</p>
-                                        
+
                                         <div className="w-full h-16 relative my-1">
                                             <Image
                                                 src="/assets/cars/white_sedan.jpg"
@@ -1650,7 +1749,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                         )}
                                     >
                                         <p className="font-black text-xs">Comfort</p>
-                                        
+
                                         <div className="w-full h-16 relative my-1">
                                             <Image
                                                 src="/assets/cars/red_sedan.jpg"
@@ -1679,7 +1778,7 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                         )}
                                     >
                                         <p className="font-black text-xs">Business</p>
-                                        
+
                                         <div className="w-full h-16 relative my-1">
                                             <Image
                                                 src="/assets/cars/black_sedan.jpg"
@@ -1794,11 +1893,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                                         key={opt.key}
                                                         type="button"
                                                         onClick={() => setRidePreferences(p => ({ ...p, acMode: opt.key }))}
-                                                        className={`p-2.5 rounded-xl border-2 text-center transition-all ${
-                                                            ridePreferences.acMode === opt.key
+                                                        className={`p-2.5 rounded-xl border-2 text-center transition-all ${ridePreferences.acMode === opt.key
                                                                 ? opt.color + " shadow-sm font-black"
                                                                 : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
-                                                        }`}
+                                                            }`}
                                                     >
                                                         <p className="text-xs font-black leading-tight">{opt.label}</p>
                                                         <p className="text-[9px] font-medium mt-0.5 opacity-70">{opt.sub}</p>
@@ -1819,11 +1917,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                                         key={opt.key}
                                                         type="button"
                                                         onClick={() => setRidePreferences(p => ({ ...p, rideAtmosphere: opt.key }))}
-                                                        className={`p-2.5 rounded-xl border-2 text-left transition-all ${
-                                                            ridePreferences.rideAtmosphere === opt.key
+                                                        className={`p-2.5 rounded-xl border-2 text-left transition-all ${ridePreferences.rideAtmosphere === opt.key
                                                                 ? "bg-slate-900 border-slate-900 text-white shadow-sm"
                                                                 : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
-                                                        }`}
+                                                            }`}
                                                     >
                                                         <p className="text-xs font-black">{opt.label}</p>
                                                         <p className="text-[9px] font-medium mt-0.5 opacity-70">{opt.sub}</p>
@@ -1837,11 +1934,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                             <button
                                                 type="button"
                                                 onClick={() => setRidePreferences(p => ({ ...p, luggageAssistance: !p.luggageAssistance }))}
-                                                className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${
-                                                    ridePreferences.luggageAssistance
+                                                className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${ridePreferences.luggageAssistance
                                                         ? "bg-amber-50 border-amber-400 text-amber-900"
                                                         : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
-                                                }`}
+                                                    }`}
                                             >
                                                 <div className="flex items-center gap-2.5">
                                                     <span className="text-xl">🧳</span>
@@ -1850,11 +1946,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                                                         <p className="text-[9px] opacity-70 font-medium">I have bags/suitcases that need trunk loading help</p>
                                                     </div>
                                                 </div>
-                                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                                                    ridePreferences.luggageAssistance
+                                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${ridePreferences.luggageAssistance
                                                         ? "bg-amber-500 border-amber-500"
                                                         : "border-slate-300"
-                                                }`}>
+                                                    }`}>
                                                     {ridePreferences.luggageAssistance && (
                                                         <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                                             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -1975,10 +2070,10 @@ export default function RiderDashboardContent({ user }: RiderDashboardContentPro
                         </div>
 
                         <form onSubmit={handleSendMessage} className="pt-3 border-t border-slate-100 flex gap-2">
-                            <input 
-                                type="text" 
-                                value={chatInput} 
-                                onChange={(e) => setChatInput(e.target.value)} 
+                            <input
+                                type="text"
+                                value={chatInput}
+                                onChange={(e) => setChatInput(e.target.value)}
                                 placeholder="Type a message to driver..."
                                 className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none text-slate-900"
                             />
