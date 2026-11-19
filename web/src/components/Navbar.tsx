@@ -8,7 +8,6 @@ import {
   X,
   ChevronRight,
   ChevronDown,
-  MessageCircle,
   LayoutDashboard,
   LogOut,
   ShieldCheck,
@@ -17,7 +16,6 @@ import {
   Info,
   PhoneCall,
 } from "lucide-react";
-import { triggerWhatsAppBooking } from "@/components/WhatsAppFloatingButton";
 import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
 
@@ -179,18 +177,6 @@ export default function Navbar() {
 
         {/* Actions Area */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {/* WhatsApp Quick-Booking Pill */}
-          <button
-            type="button"
-            onClick={() => triggerWhatsAppBooking()}
-            className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full text-xs font-black flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 hover:scale-105 active:scale-95 transition-all shadow-xs cursor-pointer whitespace-nowrap shrink-0"
-            title="Book Ride via WhatsApp (10s)"
-          >
-            <MessageCircle size={15} className="text-[#25D366] fill-[#25D366] shrink-0" />
-            <span className="hidden sm:inline">WhatsApp Dispatch</span>
-            <span className="sm:hidden font-bold">WhatsApp</span>
-          </button>
-
           {/* User Profile Pill or Guest Auth */}
           {user ? (
             <div className="relative shrink-0" ref={userMenuRef}>
@@ -350,24 +336,6 @@ export default function Navbar() {
                 </Link>
               </div>
             )}
-
-            {/* Fast WhatsApp Booking Card */}
-            <button
-              type="button"
-              onClick={() => {
-                setMobileMenuOpen(false);
-                triggerWhatsAppBooking();
-              }}
-              className="w-full py-3 px-4 rounded-2xl text-sm font-black flex items-center justify-between bg-gradient-to-r from-emerald-50 to-emerald-100/60 text-emerald-950 border border-emerald-200 hover:border-emerald-300 transition-all cursor-pointer shadow-xs"
-            >
-              <span className="flex items-center gap-2.5">
-                <MessageCircle size={18} className="text-[#25D366] fill-[#25D366] shrink-0" />
-                <span>Book on WhatsApp</span>
-              </span>
-              <span className="text-[11px] bg-[#25D366] text-white px-2.5 py-0.5 rounded-full font-bold shadow-xs">
-                10s Instant
-              </span>
-            </button>
 
             {/* Navigation Links */}
             <div className="flex flex-col gap-1 py-1">

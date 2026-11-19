@@ -10,7 +10,7 @@ describe("GPS Filter & Geo Utilities", () => {
     });
 
     it("accepts valid initial GPS reading", () => {
-        const rawPos: GeolocationPosition = {
+        const rawPos = {
             coords: {
                 latitude: 6.3156,
                 longitude: -10.8074,
@@ -21,7 +21,7 @@ describe("GPS Filter & Geo Utilities", () => {
                 speed: 5.5, // m/s = 19.8 km/h
             },
             timestamp: Date.now(),
-        };
+        } as unknown as GeolocationPosition;
 
         const result = filter.process(rawPos);
         expect(result).not.toBeNull();
@@ -32,7 +32,7 @@ describe("GPS Filter & Geo Utilities", () => {
     });
 
     it("rejects inaccurate readings with accuracy > 80m", () => {
-        const rawPos: GeolocationPosition = {
+        const rawPos = {
             coords: {
                 latitude: 6.3156,
                 longitude: -10.8074,
@@ -43,14 +43,14 @@ describe("GPS Filter & Geo Utilities", () => {
                 speed: null,
             },
             timestamp: Date.now(),
-        };
+        } as unknown as GeolocationPosition;
 
         const result = filter.process(rawPos);
         expect(result).toBeNull();
     });
 
     it("rejects stale readings older than 15 seconds", () => {
-        const rawPos: GeolocationPosition = {
+        const rawPos = {
             coords: {
                 latitude: 6.3156,
                 longitude: -10.8074,
@@ -61,7 +61,7 @@ describe("GPS Filter & Geo Utilities", () => {
                 speed: null,
             },
             timestamp: Date.now() - 25_000, // 25s old
-        };
+        } as unknown as GeolocationPosition;
 
         const result = filter.process(rawPos);
         expect(result).toBeNull();
@@ -80,10 +80,10 @@ describe("GPS Filter & Geo Utilities", () => {
                 speed: 0,
             },
             timestamp: Date.now() - 1000,
-        });
+        } as unknown as GeolocationPosition);
 
         // 1 second later, jumped 50km away
-        const teleportPos: GeolocationPosition = {
+        const teleportPos = {
             coords: {
                 latitude: 6.7000,
                 longitude: -10.8074,
@@ -94,7 +94,7 @@ describe("GPS Filter & Geo Utilities", () => {
                 speed: 0,
             },
             timestamp: Date.now(),
-        };
+        } as unknown as GeolocationPosition;
 
         const result = filter.process(teleportPos);
         expect(result).toBeNull();
@@ -113,7 +113,7 @@ describe("GPS Filter & Geo Utilities", () => {
                 speed: 8.33,
             },
             timestamp: t0,
-        });
+        } as unknown as GeolocationPosition);
 
         const next = filter.process({
             coords: {
@@ -126,7 +126,7 @@ describe("GPS Filter & Geo Utilities", () => {
                 speed: 8.33,
             },
             timestamp: t0 + 2000,
-        });
+        } as unknown as GeolocationPosition);
 
         expect(next).not.toBeNull();
         // EMA smoothing: value should be between prev and next
